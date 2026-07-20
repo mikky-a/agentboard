@@ -120,6 +120,12 @@
     mask-image: url('/assets/agent-opencode.svg');
   }
   .hint { margin-left: auto; color: #5f7a6b; font-size: 12px; }
+  /* версия доски — тихий бейдж в углу, ведёт на релизы */
+  #verBadge {
+    position: fixed; right: 12px; bottom: 8px; z-index: 5;
+    color: #5f7a6b; font-size: 11px; text-decoration: none; opacity: 0.7;
+  }
+  #verBadge:hover { opacity: 1; text-decoration: underline; }
 
   #canvas { position: relative; min-width: 100vw; min-height: 100vh; }
 
@@ -531,6 +537,14 @@
   .m-item .ck { width: 12px; color: #5bd98a; font-size: 11px; flex: none; }
   .m-item .mdef { margin-left: auto; font-size: 9px; color: #4f6156; text-transform: uppercase; }
   .m-label { font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #4f6156; padding: 6px 9px 3px; }
+  /* длинные списки моделей (opencode): фильтр + скролл */
+  .m-search {
+    display: block; width: calc(100% - 18px); margin: 2px 9px 4px;
+    font: inherit; font-size: 11px; color: inherit;
+    background: transparent; border: 0; border-bottom: 1px solid #2c3a32;
+    outline: none; padding: 3px 1px;
+  }
+  .emenu .m-list { max-height: 250px; overflow-y: auto; }
   .m-levels { display: flex; gap: 4px; padding: 3px 4px 2px; }
   .m-lvl {
     flex: 1; font: inherit; font-size: 11px; text-align: center;
@@ -596,20 +610,24 @@
   <div class="topbar">
     <b>Agent Board</b>
     <span class="chips" id="chips"></span>
-    <span id="stale" hidden style="color:#e8b44b;font-size:12px;font-weight:600">страница устарела — нажми Cmd+R</span>
+    <span id="stale" hidden style="color:#e8b44b;font-size:12px;font-weight:600">page is stale — press Cmd+R</span>
     <span class="sp"></span>
     <span class="wbadge hooksbar" id="hooksbar" hidden
-          title="хуки в конфигах CLI-агентов (Claude Code, Codex, Cursor, opencode) сообщают доске, когда агент ждёт разрешения">
-      <i class="wdot"></i><span id="hooksbarText">доска не видит статусы агентов</span>
-      <button class="top-btn" id="hooksFix">включить хуки</button>
+          title="lifecycle hooks in the CLI configs (Claude Code, Codex, Cursor, opencode) tell the board when an agent waits for approval">
+      <i class="wdot"></i><span id="hooksbarText">the board can't see agent statuses</span>
+      <button class="top-btn" id="hooksFix">enable hooks</button>
+    </span>
+    <span class="wbadge hooksbar" id="upbadge" hidden>
+      <i class="wdot"></i><span id="upbadgeText"></span>
+      <button class="top-btn" id="upGo"></button>
     </span>
     <span class="gbadge" id="gbadge" hidden><i class="gdot"></i><span id="gbadgeText"></span></span>
     <span class="wbadge" id="wbadge" hidden><i class="wdot"></i><span id="wbadgeText"></span></span>
-    <button class="top-btn" id="topPlus">＋ агент</button>
-    <button class="top-btn ghost icon-btn" id="topHist" title="воскресить агента из истории">
+    <button class="top-btn" id="topPlus">＋ agent</button>
+    <button class="top-btn ghost icon-btn" id="topHist" title="revive an agent from history">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.3"/><polyline points="3 3 3 7.5 7.5 7.5"/><polyline points="12 7 12 12 15.5 14"/></svg>
     </button>
-    <button class="top-btn ghost icon-btn" id="topSettings" title="настройки">
+    <button class="top-btn ghost icon-btn" id="topSettings" title="settings">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33 1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
     <span class="ver">0.30</span>
@@ -617,6 +635,7 @@
 
   <div id="canvas"></div>
   <div id="popover"></div>
+  <a id="verBadge" href="https://github.com/mikky-a/agentboard/releases" target="_blank" rel="noopener"></a>
   <div id="onboard"><div class="ob-card">
     <div class="ob-head">Welcome to Agent Board</div>
     <div class="ob-sub">Which agents should the board manage? Installed CLIs are pre-selected — you can change this later in settings.</div>
@@ -626,13 +645,154 @@
 
   <div id="empty">
     <div>
-      Доска пустая.<br>
-      Жми <code>＋ агент</code> — выбери проект, напиши задачу, агент появится плиткой<br>
-      и замигает, когда закончит или спросит.
+      The board is empty.<br>
+      Hit <code>＋ agent</code> — pick a project, describe a task; the agent appears as a tile<br>
+      and blinks when it finishes or asks you something.
     </div>
   </div>
 
 <script>
+  // ---------- строки интерфейса: два языка, переключаются в настройках ----------
+  const STR = {
+    en: {
+      stale: 'page is stale — press Cmd+R',
+      hooksTitle: "lifecycle hooks in the CLI configs (Claude Code, Codex, Cursor, opencode) tell the board when an agent waits for approval",
+      hooksText: "the board can't see agent statuses",
+      hooksFix: 'enable hooks',
+      hooksDone: 'done — restart live agent sessions',
+      hooksFailed: 'failed: a config cannot be read, see README',
+      newAgent: '＋ agent',
+      histTitle: 'revive an agent from history',
+      settingsTitle: 'settings',
+      boardEmpty: 'The board is empty.<br>Hit <code>＋ agent</code> — pick a project, describe a task; the agent appears as a tile<br>and blinks when it finishes or asks you something.',
+      all: 'all',
+      unitS: 's', unitMin: 'min', unitH: 'h', unitD: 'd', ago: 'ago',
+      removeFromBoard: 'remove from board',
+      messageAgent: 'message the agent…',
+      sendHint: '⌘⏎ — send',
+      sendTitle: 'send (⌘⏎)',
+      stWorking: 'working', stNeedsYou: 'needs you', stDone: 'done', stPaused: 'paused',
+      resume: 'resume', open: 'open',
+      replyTitle: 'reply without opening',
+      modelUnknown: 'model unknown',
+      agentStarting: 'agent is starting…',
+      fileChanges: 'file changes', lines: 'lines',
+      opening: 'opening…',
+      removeFolderTitle: 'remove folder from list',
+      whichProject: 'which project?',
+      otherFolder: '📁 other folder…',
+      pickFolderHint: 'pick a folder in the Finder window…',
+      default: 'default',
+      newAgentHead: 'new agent',
+      promptPlaceholder: 'What should it do? Describe the task — the agent starts in the background.\n(may be left empty)',
+      model: 'model', reasoning: 'reasoning',
+      createAgentTitle: 'create agent (⌘⏎)',
+      loadingHistory: 'loading history…',
+      noConversations: 'no conversations in the last month',
+      allProjects: 'all projects',
+      pickConversation: 'pick a conversation',
+      allOnBoard: 'everything is already on the board',
+      historyWhich: 'history of which project?',
+      recentlyClosed: 'recently closed',
+      loading: 'loading…', empty: 'empty',
+      boardSkin: 'board skin', agents: 'agents', language: 'language',
+      terminal: 'Terminal',
+      obHead: 'Welcome to Agent Board',
+      obSub: 'Which agents should the board manage? Installed CLIs are pre-selected — you can change this later in settings.',
+      notFound: 'not found — ',
+      connect: 'Connect',
+      pickAtLeastOne: 'pick at least one',
+      updateReady: 'new version', updateBtn: 'update', updating: 'updating…',
+      updateFailed: 'update failed — pull by hand',
+      searchModels: 'filter models…',
+    },
+    ru: {
+      stale: 'страница устарела — нажми Cmd+R',
+      hooksTitle: 'хуки в конфигах CLI-агентов (Claude Code, Codex, Cursor, opencode) сообщают доске, когда агент ждёт разрешения',
+      hooksText: 'доска не видит статусы агентов',
+      hooksFix: 'включить хуки',
+      hooksDone: 'готово — перезапусти сессии агентов',
+      hooksFailed: 'не вышло: конфиг не читается, смотри README',
+      newAgent: '＋ агент',
+      histTitle: 'воскресить агента из истории',
+      settingsTitle: 'настройки',
+      boardEmpty: 'Доска пустая.<br>Жми <code>＋ агент</code> — выбери проект, напиши задачу, агент появится плиткой<br>и замигает, когда закончит или спросит.',
+      all: 'все',
+      unitS: 'с', unitMin: 'мин', unitH: 'ч', unitD: 'дн', ago: 'назад',
+      removeFromBoard: 'убрать с доски',
+      messageAgent: 'написать агенту…',
+      sendHint: '⌘⏎ — отправить',
+      sendTitle: 'отправить (⌘⏎)',
+      stWorking: 'работает', stNeedsYou: 'ждёт тебя', stDone: 'закончил', stPaused: 'на паузе',
+      resume: 'продолжить', open: 'открыть',
+      replyTitle: 'написать агенту, не открывая',
+      modelUnknown: 'модель не определена',
+      agentStarting: 'агент запускается…',
+      fileChanges: 'изменения в файле', lines: 'строк',
+      opening: 'открываю…',
+      removeFolderTitle: 'убрать папку из списка',
+      whichProject: 'в каком проекте?',
+      otherFolder: '📁 другая папка…',
+      pickFolderHint: 'выбери папку в открывшемся окне Finder…',
+      default: 'дефолт',
+      newAgentHead: 'новый агент',
+      promptPlaceholder: 'Что сделать? Опиши задачу — агент начнёт её в фоне.\n(можно оставить пустым)',
+      model: 'модель', reasoning: 'ризонинг',
+      createAgentTitle: 'создать агента (⌘⏎)',
+      loadingHistory: 'загружаю историю…',
+      noConversations: 'нет разговоров за последний месяц',
+      allProjects: 'все проекты',
+      pickConversation: 'выбери разговор',
+      allOnBoard: 'всё уже на доске',
+      historyWhich: 'история какого проекта?',
+      recentlyClosed: 'недавно закрытые',
+      loading: 'загружаю…', empty: 'пусто',
+      boardSkin: 'скин доски', agents: 'агенты', language: 'язык',
+      terminal: 'Терминал',
+      obHead: 'Добро пожаловать в Agent Board',
+      obSub: 'Какими агентами управлять доске? Установленные CLI уже отмечены — позже это можно изменить в настройках.',
+      notFound: 'не найден — ',
+      connect: 'Подключить',
+      pickAtLeastOne: 'выбери хотя бы одного',
+      updateReady: 'есть обновление', updateBtn: 'обновить', updating: 'обновляю…',
+      updateFailed: 'не обновилось — обнови руками',
+      searchModels: 'фильтр моделей…',
+    },
+  };
+  let LANG = localStorage.getItem('agentboard-lang') || (navigator.language && navigator.language.startsWith('ru') ? 'ru' : 'en');
+  const t = k => (STR[LANG] && STR[LANG][k]) ?? STR.en[k] ?? k;
+
+  // проставить статичные строки разметки под текущий язык (топбар, пустая доска, онбординг)
+  function applyLang() {
+    document.documentElement.lang = LANG;
+    const set = (id, prop, val) => { const el = document.getElementById(id); if (el) el[prop] = val; };
+    set('stale', 'textContent', t('stale'));
+    const hb = document.getElementById('hooksbar');
+    if (hb) hb.title = t('hooksTitle');
+    if (hb && !hb.dataset.done) {   // после установки хуков там своё сообщение — не затираем
+      set('hooksbarText', 'textContent', t('hooksText'));
+      set('hooksFix', 'textContent', t('hooksFix'));
+    }
+    set('topPlus', 'textContent', t('newAgent'));
+    set('topHist', 'title', t('histTitle'));
+    set('topSettings', 'title', t('settingsTitle'));
+    const emptyBox = document.querySelector('#empty > div');
+    if (emptyBox) emptyBox.innerHTML = t('boardEmpty');
+    const obHead = document.querySelector('#onboard .ob-head');
+    if (obHead) obHead.textContent = t('obHead');
+    const obSub = document.querySelector('#onboard .ob-sub');
+    if (obSub) obSub.textContent = t('obSub');
+    set('obGo', 'textContent', t('connect'));
+    if (obPicked) renderOnboard();   // онбординг открыт — перерисовать его строки
+  }
+
+  function setLang(lang) {
+    LANG = lang;
+    localStorage.setItem('agentboard-lang', lang);
+    applyLang();
+    poll();   // перерисовать карточки/чипы/бейджи на новом языке
+  }
+
   const canvas = document.getElementById('canvas');
   const popover = document.getElementById('popover');
   const CARD_W = 280, CARD_H = 195;
@@ -658,7 +818,7 @@
     el.dataset.sig = sig;
     if (names.length < 2) { el.innerHTML = ''; return; }
     el.innerHTML =
-      '<button class="chip' + (filter ? '' : ' on') + '" data-p="">все<span class="c">' +
+      '<button class="chip' + (filter ? '' : ' on') + '" data-p="">' + t('all') + '<span class="c">' +
       lastAgents.length + '</span></button>' +
       names.map(p =>
         '<button class="chip' + (p === filter ? ' on' : '') + '" data-p="' + esc(p) + '">' +
@@ -678,10 +838,10 @@
   function save() { localStorage.setItem('agentboard-pos-v2', JSON.stringify(pos)); }
 
   function fmtAge(s) {
-    if (s < 60) return s + 'с';
-    if (s < 3600) return Math.floor(s / 60) + ' мин';
-    if (s < 86400) return Math.floor(s / 3600) + ' ч';
-    return Math.floor(s / 86400) + ' дн';
+    if (s < 60) return s + t('unitS');
+    if (s < 3600) return Math.floor(s / 60) + ' ' + t('unitMin');
+    if (s < 86400) return Math.floor(s / 3600) + ' ' + t('unitH');
+    return Math.floor(s / 86400) + ' ' + t('unitD');
   }
 
   // ---------- размещение: новый агент встаёт справа от собратьев по папке ----------
@@ -742,13 +902,13 @@
     el.innerHTML =
       '<div class="acard-head"><img class="hlogo" hidden alt="">' +
       '<span class="name"><span class="ntext"></span></span>' +
-      '<button class="xbtn" data-act="remove" title="убрать с доски">×</button></div>' +
+      '<button class="xbtn" data-act="remove" title="' + t('removeFromBoard') + '">×</button></div>' +
       '<div class="acard-body"></div>' +
       '<div class="acard-actions"></div>' +
       '<div class="cmp-in"><div class="composer">' +
-      '<textarea rows="2" placeholder="написать агенту…"></textarea>' +
-      '<div class="cmp-row"><span class="kbd">⌘⏎ — отправить</span>' +
-      '<button class="send" title="отправить (⌘⏎)">↑</button></div></div></div>';
+      '<textarea rows="2" placeholder="' + t('messageAgent') + '"></textarea>' +
+      '<div class="cmp-row"><span class="kbd">' + t('sendHint') + '</span>' +
+      '<button class="send" title="' + t('sendTitle') + '">↑</button></div></div></div>';
 
     const p = pos[agent.name] || { ...defaultPos(agent), t: Date.now() };
     pos[agent.name] = p;
@@ -859,13 +1019,13 @@
     const acts = el.querySelector('.acard-actions');
     const agent = AGENT_LABELS[a.agent] ? a.agent : 'claude';
     const statusLabel = {
-      working: 'работает', waiting: 'ждёт тебя', idle: 'закончил', parked: 'на паузе',
+      working: t('stWorking'), waiting: t('stNeedsYou'), idle: t('stDone'), parked: t('stPaused'),
     }[status] || status;
     acts.innerHTML =
       (status === 'parked'
-        ? '<button class="primary" data-act="resume">продолжить</button>'
-        : '<button class="primary" data-act="open">открыть</button>' +
-          '<button class="icon-sm" data-act="reply" title="написать агенту, не открывая">' +
+        ? '<button class="primary" data-act="resume">' + t('resume') + '</button>'
+        : '<button class="primary" data-act="open">' + t('open') + '</button>' +
+          '<button class="icon-sm" data-act="reply" title="' + t('replyTitle') + '">' +
           '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>') +
       '<span class="meta">' +
       '<span class="proj"></span><span class="st"></span>' +
@@ -876,10 +1036,10 @@
     const proj = el.querySelector('.proj');
     proj.textContent = a.project;
     const activity = a.activity
-      ? fmtAge(Math.max(0, Math.floor(Date.now() / 1000 - a.activity))) + ' назад'
+      ? fmtAge(Math.max(0, Math.floor(Date.now() / 1000 - a.activity))) + ' ' + t('ago')
       : '';
     const activeStatus = status === 'working' ? statusLabel : '';
-    const model = a.model || 'модель не определена';
+    const model = a.model || t('modelUnknown');
     const tip = [a.project, model, activeStatus, activity].filter(Boolean).join(' · ');
     const meta = el.querySelector('.meta');
     meta.setAttribute('aria-label', tip);
@@ -894,7 +1054,7 @@
       body.dataset.raw = a.preview;
       if (!a.preview.trim() && status !== 'parked') {
         // агент ещё ничего не вывел — лоудер вместо пустоты
-        body.innerHTML = '<div class="ldr"><i></i><i></i><i></i><span>агент запускается…</span></div>';
+        body.innerHTML = '<div class="ldr"><i></i><i></i><i></i><span>' + t('agentStarting') + '</span></div>';
       } else {
         renderPreview(body, a.preview);
         if (wasEmpty && booted) {
@@ -964,8 +1124,8 @@
         const block = [l];
         while (i + 1 < lines.length && DIFF_LINE.test(lines[i + 1])) block.push(lines[++i]);
         if (block.length > 1) {
-          html += '<details class="tres"><summary><span class="tcall">изменения в файле</span>' +
-                  ' <span class="more">' + block.length + ' строк</span></summary>' +
+          html += '<details class="tres"><summary><span class="tcall">' + t('fileChanges') + '</span>' +
+                  ' <span class="more">' + block.length + ' ' + t('lines') + '</span></summary>' +
                   block.map(esc).join('\n') + '\n</details>';
         } else {
           html += esc(l) + '\n';
@@ -1018,7 +1178,7 @@
       await api('remove?tmux=' + encodeURIComponent(a.status === 'parked' ? '' : a.name) +
                 '&id=' + encodeURIComponent(a.cid || ''));
     if (act === 'resume') {
-      btn.textContent = 'открываю…';
+      btn.textContent = t('opening');
       await api('resume?id=' + encodeURIComponent(a.cid));
     }
     poll();
@@ -1063,11 +1223,11 @@
       '<button class="po-item po-sess po-flex" data-i="' + i + '">' +
       projIcon(p) +
       '<span class="t">' + esc(p.project) + '</span>' +
-      '<span class="po-x" title="убрать папку из списка">×</span></button>').join('');
+      '<span class="po-x" title="' + t('removeFolderTitle') + '">×</span></button>').join('');
     showPopover(x, y,
-      '<div class="po-head">в каком проекте?</div>' +
+      '<div class="po-head">' + t('whichProject') + '</div>' +
       '<div class="po-list">' + rows + '</div>' +
-      '<button class="po-item" id="poOther">📁 другая папка…</button>');
+      '<button class="po-item" id="poOther">' + t('otherFolder') + '</button>');
     popover.querySelectorAll('.po-sess').forEach(btn => {
       btn.onclick = async e => {
         const p = projects[+btn.dataset.i];
@@ -1085,8 +1245,8 @@
 
   // шаг 1б: любая папка на маке через нативный Finder-диалог
   async function pickFolder(x, y) {
-    showPopover(x, y, '<div class="po-empty">выбери папку в открывшемся окне Finder…</div>');
-    const d = await api('pickdir');
+    showPopover(x, y, '<div class="po-empty">' + t('pickFolderHint') + '</div>');
+    const d = await api('pickdir?lang=' + LANG);
     if (!d || d.cancelled) { hidePopover(); return; }
     projectMenu(d, x, y);
   }
@@ -1113,18 +1273,32 @@
       models: [{ id: 'gpt-5.6-sol', l: 'GPT-5.6 Sol', def: 1 }, { id: 'gpt-5.6-codex', l: 'GPT-5.6 Codex' }],
       levels: ['minimal', 'low', 'medium', 'high', 'xhigh'], defL: 'high',
     },
-    // у cursor и opencode модель берётся из их собственных настроек
+    // у cursor/opencode списки моделей живые — подгружаются с сервера
+    // (loadModels); до загрузки единственный пункт «дефолт» (пустой l
+    // резолвится в t('default') при отрисовке, чтобы следовать за языком)
     cursor: {
       label: 'Cursor',
-      models: [{ id: '', l: 'дефолт', def: 1 }],
+      models: [{ id: '', l: '', def: 1 }],
       levels: [], defL: '',
     },
     opencode: {
       label: 'opencode',
-      models: [{ id: '', l: 'дефолт', def: 1 }],
+      models: [{ id: '', l: '', def: 1 }],
       levels: [], defL: '',
     },
   };
+
+  // модели cursor/opencode спрашиваем у их CLI через сервер, один раз
+  async function loadModels(eng) {
+    const E = ENGINES[eng];
+    if (!E || E.loaded) return;
+    const r = await api('models?agent=' + eng);
+    if (r && r.models && r.models.length) {
+      E.models = r.models.map(m => ({ id: m.id, l: m.l, def: m.def ? 1 : 0 }));
+      if (!E.models.some(m => m.def)) E.models[0].def = 1;
+      E.loaded = true;
+    }
+  }
 
   function engineAvailable(id) {
     return !!avail[id] && (!enabledProviders || enabledProviders.includes(id));
@@ -1142,8 +1316,10 @@
     try {
       const saved = JSON.parse(localStorage.getItem(LAST_MODEL_KEY) || 'null');
       const E = saved && ENGINES[saved.eng];
+      // у cursor/opencode список ленивый — сохранённую модель не браним до загрузки
+      const lazy = saved && (saved.eng === 'cursor' || saved.eng === 'opencode');
       if (!E || !engineAvailable(saved.eng) ||
-          !E.models.some(m => m.id === saved.model)) return fallback;
+          (!lazy && !E.models.some(m => m.id === saved.model))) return fallback;
       return { eng: saved.eng, model: saved.model };
     } catch (_) {
       return fallback;
@@ -1158,14 +1334,21 @@
     const last = lastModel();
     const st = { ...last, level: ENGINES[last.eng].defL };
     let draft = '';
+    ['cursor', 'opencode'].forEach(id => {
+      if (engineAvailable(id) && !ENGINES[id].loaded)
+        loadModels(id).then(() => { if (popover.dataset.owner === 'plus') paint(); });
+    });
 
     function paint() {
       const E = ENGINES[st.eng];
-      const mLabel = E.models.find(m => m.id === st.model).l;
+      const mSel = E.models.find(m => m.id === st.model)
+                   || E.models.find(m => m.def) || E.models[0];
+      st.model = mSel.id;
+      const mLabel = mSel.l || t('default');
       showPopover(x, y,
-        '<div class="po-head">' + esc(p.project) + ' — новый агент</div>' +
+        '<div class="po-head">' + esc(p.project) + ' — ' + t('newAgentHead') + '</div>' +
         '<div class="composer">' +
-        '<textarea id="poPrompt" placeholder="Что сделать? Опиши задачу — агент начнёт её в фоне.\n(можно оставить пустым)"></textarea>' +
+        '<textarea id="poPrompt" placeholder="' + t('promptPlaceholder') + '"></textarea>' +
         '<div class="c-bar"><div class="pw">' +
         '<button class="epill" id="cfgPill">' + agentIcon(st.eng) + esc(mLabel) +
         (E.levels.length ? ' · ' + st.level : '') + '<span class="chev">▲</span></button>' +
@@ -1174,18 +1357,22 @@
           .filter(engineAvailable)
           .map(id => '<button class="eng' + (id === st.eng ? ' on' : '') + '" data-e="' + id + '" title="' +
                      ENGINES[id].label + '">' + agentIcon(id) + '</button>').join('') + '</div>' +
-        '<div class="m-label">модель</div>' +
-        E.models.map(m =>
+        '<div class="m-label">' + t('model') + '</div>' +
+        (E.models.length > 12
+          ? '<input class="m-search" id="mSearch" placeholder="' + t('searchModels') + '">'
+          : '') +
+        '<div class="m-list">' + E.models.map(m =>
           '<button class="m-item" data-m="' + m.id + '"><span class="ck">' +
-          (m.id === st.model ? '✓' : '') + '</span>' + esc(m.l) +
-          (m.def ? '<span class="mdef">дефолт</span>' : '') + '</button>').join('') +
+          (m.id === st.model ? '✓' : '') + '</span>' + esc(m.l || t('default')) +
+          (m.def ? '<span class="mdef">' + t('default') + '</span>' : '') + '</button>').join('') +
+        '</div>' +
         (E.levels.length
-          ? '<div class="m-label">ризонинг</div><div class="m-levels">' +
+          ? '<div class="m-label">' + t('reasoning') + '</div><div class="m-levels">' +
             E.levels.map(l => '<button class="m-lvl' + (l === st.level ? ' sel' : '') +
                               '" data-l="' + l + '">' + l + '</button>').join('') + '</div>'
           : '') +
         '</div></div>' +
-        '<button class="send" id="poCreate" title="создать агента (⌘⏎)">↑</button>' +
+        '<button class="send" id="poCreate" title="' + t('createAgentTitle') + '">↑</button>' +
         '</div></div>');
       popover.dataset.owner = 'plus';
 
@@ -1211,6 +1398,12 @@
         else openCfgMenu();
       };
       menu.onclick = ev => ev.stopPropagation();
+      const ms = document.getElementById('mSearch');
+      if (ms) ms.oninput = () => {
+        const q = ms.value.toLowerCase();
+        menu.querySelectorAll('.m-item').forEach(b =>
+          b.style.display = b.dataset.m.toLowerCase().includes(q) ? '' : 'none');
+      };
       menu.querySelectorAll('.eng').forEach(b => b.onclick = () => {
         st.eng = b.dataset.e;
         st.model = defaultModel(st.eng);
@@ -1245,10 +1438,10 @@
   }
 
   async function historyList(project, cwd, x, y) {
-    showPopover(x, y, '<div class="po-empty">загружаю историю…</div>');
+    showPopover(x, y, '<div class="po-empty">' + t('loadingHistory') + '</div>');
     const hist = await api('history' + (cwd ? '?cwd=' + encodeURIComponent(cwd) : ''));
     if (!hist || !hist.length) {
-      showPopover(x, y, '<div class="po-empty">нет разговоров за последний месяц</div>');
+      showPopover(x, y, '<div class="po-empty">' + t('noConversations') + '</div>');
       return;
     }
     const onBoard = new Set(lastAgents.map(a => a.cid).filter(Boolean));
@@ -1258,11 +1451,11 @@
       '<span class="t">' + esc(h.name || h.title) + '</span>' +
       '<span class="m">' + (cwd ? '' : esc(h.project) + ' · ') +
         (h.name ? esc(h.title.slice(0, 45)) + ' · ' : '') +
-        fmtAge(h.age) + ' назад</span>' +
+        fmtAge(h.age) + ' ' + t('ago') + '</span>' +
       '</button>').join('');
     showPopover(x, y,
-      '<div class="po-head">' + esc(project || 'все проекты') + ' — выбери разговор</div>' +
-      '<div class="po-list">' + (rows || '<div class="po-empty">всё уже на доске</div>') + '</div>');
+      '<div class="po-head">' + esc(project || t('allProjects')) + ' — ' + t('pickConversation') + '</div>' +
+      '<div class="po-list">' + (rows || '<div class="po-empty">' + t('allOnBoard') + '</div>') + '</div>');
     popover.querySelectorAll('.po-sess').forEach(btn => {
       btn.onclick = async () => {
         const h = visible[+btn.dataset.i];
@@ -1289,10 +1482,10 @@
       projIcon(p) +
       '<span class="t">' + esc(p.project) + '</span></button>').join('');
     showPopover(x, y,
-      '<div class="po-head">история какого проекта?</div>' +
+      '<div class="po-head">' + t('historyWhich') + '</div>' +
       '<div class="po-list">' +
       '<button class="po-item po-sess" id="poClosed">' +
-      '<span class="t"><span class="po-chev">▸</span>недавно закрытые</span></button>' +
+      '<span class="t"><span class="po-chev">▸</span>' + t('recentlyClosed') + '</span></button>' +
       '<div id="poClosedSub"></div>' + rows + '</div>');
 
     const cbtn = document.getElementById('poClosed');
@@ -1304,7 +1497,7 @@
         return;
       }
       cbtn.classList.add('open');
-      sub.innerHTML = '<div class="po-sub"><div class="po-empty">загружаю…</div></div>';
+      sub.innerHTML = '<div class="po-sub"><div class="po-empty">' + t('loading') + '</div></div>';
       const list = await api('closed') || [];
       const onBoard = new Set(lastAgents.map(a => a.cid).filter(Boolean));
       const vis = list.filter(h => !onBoard.has(h.id));
@@ -1312,9 +1505,9 @@
       sub.innerHTML = '<div class="po-sub">' + (vis.length ? vis.map((h, i) =>
         '<button class="po-item po-sess" data-c="' + i + '">' +
         '<span class="t">' + esc(h.name || h.title) + '</span>' +
-        '<span class="m">' + esc(h.project) + ' · ' + fmtAge(h.age) + ' назад</span>' +
+        '<span class="m">' + esc(h.project) + ' · ' + fmtAge(h.age) + ' ' + t('ago') + '</span>' +
         '</button>').join('')
-        : '<div class="po-empty">пусто</div>') + '</div>';
+        : '<div class="po-empty">' + t('empty') + '</div>') + '</div>';
       sub.querySelectorAll('[data-c]').forEach(b => b.onclick = async () => {
         const h = vis[+b.dataset.c];
         hidePopover();
@@ -1384,7 +1577,7 @@
       return '<button class="ob-row' + (ok ? '' : ' off') + '" data-p="' + id + '">' +
         '<span class="ck">' + (ok && obPicked.has(id) ? '✓' : '') + '</span>' +
         agentIcon(id) + '<span>' + AGENT_LABELS[id] + '</span>' +
-        '<span class="m">' + (ok ? '' : 'not found — ' + PROVIDER_HINTS[id]) + '</span>' +
+        '<span class="m">' + (ok ? '' : t('notFound') + PROVIDER_HINTS[id]) + '</span>' +
         '</button>';
     }).join('');
     document.querySelectorAll('#obRows .ob-row').forEach(b => {
@@ -1397,7 +1590,7 @@
     });
     document.getElementById('obGo').disabled = !obPicked.size;
     document.getElementById('obHint').textContent =
-      obPicked.size ? '' : 'pick at least one';
+      obPicked.size ? '' : t('pickAtLeastOne');
   }
 
   function showOnboard() {
@@ -1415,6 +1608,17 @@
     }
   });
 
+  // обновление: git pull на сервере, сервер сам перезапустится
+  document.getElementById('upGo').addEventListener('click', async () => {
+    const ub = document.getElementById('upbadge');
+    ub.dataset.busy = '1';
+    document.getElementById('upGo').hidden = true;
+    document.getElementById('upbadgeText').textContent = t('updating');
+    const r = await api('update');
+    if (r && r.ok) setTimeout(() => location.reload(), 3000);
+    else document.getElementById('upbadgeText').textContent = t('updateFailed');
+  });
+
   // ---------- онбординг: установка статус-хуков в конфиги CLI ----------
   document.getElementById('hooksFix').addEventListener('click', async () => {
     const r = await api('hooks_install') || {};
@@ -1422,13 +1626,11 @@
     const need = enabledProviders || Object.keys(avail).filter(id => avail[id]);
     if (need.every(p => r[p])) {
       bar.dataset.done = '1';
-      document.getElementById('hooksbarText').textContent =
-        'готово — перезапусти сессии агентов';
+      document.getElementById('hooksbarText').textContent = t('hooksDone');
       document.getElementById('hooksFix').remove();
       setTimeout(() => { bar.hidden = true; }, 10000);
     } else {
-      document.getElementById('hooksbarText').textContent =
-        'не вышло: конфиг не читается, смотри README';
+      document.getElementById('hooksbarText').textContent = t('hooksFailed');
     }
   });
 
@@ -1475,6 +1677,15 @@
     }
     if (newWait) waitPing();
 
+    // версия в углу и плашка «есть обновление» (git pull по клику)
+    document.getElementById('verBadge').textContent = data.version ? 'v' + data.version : '';
+    const ub = document.getElementById('upbadge');
+    if (!ub.dataset.busy) {
+      ub.hidden = !data.update;
+      document.getElementById('upbadgeText').textContent = t('updateReady') + ' v' + data.update;
+      document.getElementById('upGo').textContent = t('updateBtn');
+    }
+
     // плашка онбординга: хуков нет — доска слепа к статусу «ждёт»
     const bar = document.getElementById('hooksbar');
     if (!bar.dataset.done) {
@@ -1495,11 +1706,11 @@
     const q = lastAgents.filter(a => a.status === 'waiting').length;
     const gb = document.getElementById('gbadge');
     gb.hidden = !w;
-    gb.title = w === 1 ? 'работает' : 'работают';
+    gb.title = t('stWorking');
     document.getElementById('gbadgeText').textContent = w;
     const wb = document.getElementById('wbadge');
     wb.hidden = !q;
-    wb.title = q === 1 ? 'ждёт тебя' : 'ждут тебя';
+    wb.title = t('stNeedsYou');
     document.getElementById('wbadgeText').textContent = q;
     document.title = (q ? '(' + q + ') ' : '') + 'Agent Board';
     if (navigator.setAppBadge) {
@@ -1524,7 +1735,7 @@
 
   function settingsMenu(x, y) {
     const cur = localStorage.getItem('agentboard-skin') || '';
-    const all = [{ file: '', name: 'Терминал' }, ...skinList];
+    const all = [{ file: '', name: t('terminal') }, ...skinList];
     const rows = all.map((s, i) =>
       '<button class="po-item po-flex" data-i="' + i + '">' +
       '<span class="po-check">' + (s.file === cur ? '✓' : '') + '</span>' +
@@ -1534,8 +1745,21 @@
       '<button class="po-item po-flex' + (avail[id] ? '' : ' po-dim') + '" data-p="' + id + '">' +
       '<span class="po-check">' + (sel.includes(id) ? '✓' : '') + '</span>' +
       agentIcon(id) + '<span class="t">' + AGENT_LABELS[id] + '</span></button>').join('');
-    showPopover(x, y, '<div class="po-head">скин доски</div>' + rows +
-                      '<div class="po-head">агенты</div>' + provRows);
+    // язык доски: те же строки-пункты с галочкой, что и у скинов; названия — эндонимы
+    const langs = [{ code: 'en', name: 'English' }, { code: 'ru', name: 'Русский' }];
+    const langRows = langs.map(l =>
+      '<button class="po-item po-flex" data-lang="' + l.code + '">' +
+      '<span class="po-check">' + (l.code === LANG ? '✓' : '') + '</span>' +
+      '<span class="t">' + l.name + '</span></button>').join('');
+    showPopover(x, y, '<div class="po-head">' + t('boardSkin') + '</div>' + rows +
+                      '<div class="po-head">' + t('agents') + '</div>' + provRows +
+                      '<div class="po-head">' + t('language') + '</div>' + langRows);
+    popover.querySelectorAll('.po-item[data-lang]').forEach(btn => {
+      btn.onclick = () => {
+        setLang(btn.dataset.lang);
+        settingsMenu(x, y);   // перерисовать меню на новом языке
+      };
+    });
     popover.querySelectorAll('.po-item[data-i]').forEach(btn => {
       btn.onclick = () => {
         applySkin(all[+btn.dataset.i].file);
@@ -1565,6 +1789,7 @@
     applySkin(localStorage.getItem('agentboard-skin') || '');
   }
 
+  applyLang();
   initSkins();
   poll();
   setInterval(poll, 2000);

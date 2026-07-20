@@ -15,7 +15,7 @@ Supported today: **Claude Code**, **Codex CLI**, **Cursor CLI**, and **opencode*
 - Three skins: terminal (phosphor glow), macOS glass, and a Soviet retro console.
 
 macOS only for now (uses tmux, AppleScript and a Swift/WKWebView wrapper).
-The UI is currently in Russian — English localization is in progress.
+The UI speaks English and Russian (auto-detected, switchable in settings).
 
 ## Requirements
 
@@ -26,6 +26,13 @@ The UI is currently in Russian — English localization is in progress.
 - Python 3 (system one is fine, stdlib only — no pip packages)
 
 ## Quickstart
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mikky-a/agentboard/main/install.sh | sh
+```
+
+This clones the repo into `~/.agentboard`, sets up start-on-login (launchd)
+and opens the board. Prefer to run it by hand? Then:
 
 ```bash
 git clone https://github.com/mikky-a/agentboard.git
@@ -61,25 +68,12 @@ of terminal output.
 
 A dock icon with a badge showing how many agents are waiting for you.
 
-## Start on login (optional)
+## Updates
 
-Create `~/Library/LaunchAgents/com.agentboard.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>com.agentboard</string>
-  <key>ProgramArguments</key>
-  <array><string>/usr/bin/python3</string><string>/FULL/PATH/TO/agentboard/agentboard.py</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/tmp/agentboard.log</string>
-  <key>StandardErrorPath</key><string>/tmp/agentboard.log</string>
-</dict></plist>
-```
-
-Then `launchctl load ~/Library/LaunchAgents/com.agentboard.plist`.
+The board checks GitHub Releases once a day; when a new version is out, a
+badge appears in the top bar — one click runs `git pull` and restarts the
+server. (Installed via `install.sh` / `git clone` — that's what makes the
+pull possible.)
 
 ## Configuration
 
@@ -97,10 +91,9 @@ Then `launchctl load ~/Library/LaunchAgents/com.agentboard.plist`.
 
 ## Roadmap
 
-- Onboarding screen: pick which agents to connect
-- English UI
-- One-line installer and auto-update
 - Resume for paused Codex / Cursor / opencode cards (Claude only for now)
+- Homebrew tap
+- Windows/Linux support
 
 ## License
 

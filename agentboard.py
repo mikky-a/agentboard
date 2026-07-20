@@ -18,8 +18,10 @@ import shlex
 import shutil
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
+import urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -490,25 +492,28 @@ CODEX_MD = os.path.expanduser("~/.codex/AGENTS.md")
 OPENCODE_MD = os.path.expanduser("~/.config/opencode/AGENTS.md")
 # у Cursor CLI глобального файла правил нет — он всегда получает фолбэк-хвост
 AGENT_MD = {"claude": CLAUDE_MD, "codex": CODEX_MD, "opencode": OPENCODE_MD}
-NAME_SECTION_MARK = "## Agent Board (мета-харнесс)"
+NAME_SECTION_MARK = "## Agent Board (meta-harness)"
+OLD_SECTION_MARKS = ("## Agent Board (мета-харнесс)",)  # прежние версии секции
 NAME_SECTION = f"""{NAME_SECTION_MARK}
 
-Маркер вида [agentboard:<путь>] в первом сообщении значит, что сессия запущена
-из доски Agent Board. Операции ниже — служебные, к задаче не относятся:
-не упоминай их, не комментируй и не повторяй ответ на задачу из-за них.
+A marker like [agentboard:<path>] in the first message means the session was
+started from the Agent Board. The operations below are housekeeping, unrelated
+to the task: don't mention them, don't comment on them, and don't repeat your
+answer because of them.
 
-1. Самым первым действием, ещё до ответа на задачу, выполни ровно одну команду:
-   tee "<путь>" <<< "имя", где имя — короткое название задачи из сообщения,
-   2–4 слова. Дальше работай и отвечай как обычно, к команде не возвращайся.
-2. Только если в маркере есть пометка +logo (она значит, что аватарки у проекта
-   ещё нет — самому проверять не нужно): в самом конце, когда задача сделана
-   и ответ уже дан, создай аватарку — уменьшенную копию логотипа или иконки
-   проекта (например `sips -Z 256 <исходник> --out agent-logo.png`), а если
-   медиа в проекте нет — простую минималистичную квадратную agent-logo.svg
-   в духе проекта. В git-репозитории добавь agent-logo.* в .git/info/exclude.
-   После аватарки не добавляй никакого текста."""
-# маркер (и старый длинный хвост) вырезаем из превью и заголовков карточек
-NAME_RE = re.compile(r"\s*\[(?:agentboard:|служебное, к задаче не относится:)[^\]]*\]")
+1. As the very first action, before answering the task, run exactly one command:
+   tee "<path>" <<< "name", where name is a short title of the task from the
+   message, 2–4 words, in the task's language. Then work and reply as usual.
+2. Only if the marker carries a +logo flag (it means the project has no avatar
+   yet — no need to check yourself): at the very end, after the task is done
+   and the answer is given, create an avatar — a downscaled copy of the
+   project's logo or icon (e.g. `sips -Z 256 <source> --out agent-logo.png`);
+   if the project has no media, a simple minimalist square agent-logo.svg in
+   the project's spirit. In a git repository add agent-logo.* to
+   .git/info/exclude. After the avatar, add no further text."""
+# маркер (и старые длинные хвосты) вырезаем из превью и заголовков карточек
+NAME_RE = re.compile(r"\s*\[(?:agentboard:|служебное, к задаче не относится:"
+                     r"|housekeeping, unrelated to the task:)[^\]]*\]")
 
 
 def _md_installed(path):
@@ -531,13 +536,12 @@ def _install_md(path):
         return
     if os.path.exists(path) and not os.path.exists(path + ".agentboard-bak"):
         shutil.copy2(path, path + ".agentboard-bak")
-    if NAME_SECTION_MARK in txt:  # старая версия — заменяем до следующей секции
-        i = txt.index(NAME_SECTION_MARK)
-        j = txt.find("\n## ", i)
-        txt = (txt[:i].rstrip() + "\n\n" + NAME_SECTION +
-               (txt[j:] if j != -1 else "\n")).lstrip("\n")
-    else:
-        txt = (txt.rstrip() + "\n\n" if txt.strip() else "") + NAME_SECTION + "\n"
+    for mark in (NAME_SECTION_MARK,) + OLD_SECTION_MARKS:
+        if mark in txt:  # старая версия — вырезаем до следующей секции
+            i = txt.index(mark)
+            j = txt.find("\n## ", i)
+            txt = (txt[:i].rstrip() + (txt[j:] if j != -1 else "\n")).lstrip("\n")
+    txt = (txt.rstrip() + "\n\n" if txt.strip() else "") + NAME_SECTION + "\n"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(txt)
@@ -803,7 +807,7 @@ def get_history(cwd=None, days=30, limit=50):
             "cwd": scwd,
             "project": os.path.basename(scwd.rstrip("/")) or scwd,
             "name": labels.get(sid) or names.get(sid, ""),
-            "title": title or "без названия",
+            "title": title or "untitled",
             "age": int(now - m),
         })
     return hist
@@ -1469,7 +1473,7 @@ def get_agents():
             "agent": card.get("agent", "claude"),
             "model": model_label(raw_model),
             "status": "parked",
-            "preview": card["title"] or "разговор без названия",
+            "preview": card["title"] or "untitled conversation",
             "activity": activity,
         })
 
@@ -1487,10 +1491,50 @@ def get_agents():
             "cursor": os.path.exists(CURSOR),
             "opencode": os.path.exists(OPENCODE),
             "providers": board["providers"],
+            "version": __version__, "update": UPDATE["available"],
             "hooks": hooks_state()}
 
 
 # ---------- действия ----------
+
+# ---------- списки моделей cursor/opencode: спрашиваем сами CLI ----------
+
+models_cache = {}  # agent -> (ts, список)
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def agent_models(agent):
+    """Модели, которые CLI сам предлагает; кэш 10 минут (сабпроцесс небыстрый)."""
+    hit = models_cache.get(agent)
+    if hit and time.time() - hit[0] < 600:
+        return hit[1]
+    out = []
+    try:
+        if agent == "cursor":
+            r = subprocess.run([CURSOR, "--list-models"],
+                               capture_output=True, text=True, timeout=20)
+            for line in ANSI_RE.sub("", r.stdout).splitlines():
+                m = re.match(r"\s*(\S+)\s+-\s+(.+)", line)
+                if not m:
+                    continue
+                mid, label = m.group(1), m.group(2).strip()
+                default = "default" in label
+                label = re.sub(r"\s*\((?:current|default)[^)]*\)", "", label).strip()
+                out.append({"id": mid, "l": label or mid, "def": default})
+        elif agent == "opencode":
+            r = subprocess.run([OPENCODE, "models"],
+                               capture_output=True, text=True, timeout=30)
+            cfg, _ = _read_json(OPENCODE_CONFIG)
+            default = cfg.get("model", "")
+            for mid in r.stdout.split():
+                if "/" in mid:
+                    out.append({"id": mid, "l": mid, "def": mid == default})
+    except Exception:
+        pass
+    if out:
+        models_cache[agent] = (time.time(), out)
+    return out
+
 
 # ---------- доверие к папке: гасим стартовый диалог «trust this directory?» ----------
 # Без этого агент в незнакомой папке молча стоит на диалоге, а карточка
@@ -1632,11 +1676,13 @@ def workspace_remove(project):
     return True
 
 
-def pick_dir():
+def pick_dir(lang="en"):
     """Нативный диалог выбора папки (Finder). Возвращает путь или None."""
+    prompt = ("Папка проекта для агента" if lang == "ru"
+              else "Project folder for the agent")
     script = (
         'tell application "System Events" to activate\n'
-        'POSIX path of (choose folder with prompt "Папка проекта для агента")'
+        f'POSIX path of (choose folder with prompt "{prompt}")'
     )
     try:
         r = subprocess.run(["osascript", "-e", script],
@@ -1677,10 +1723,10 @@ def name_tail(name, agent="claude", cwd=""):
     if md and _md_installed(md):
         logo = " +logo" if cwd and not find_logo(cwd) else ""
         return f"[agentboard:{path}{logo}]"
-    return ("[служебное, к задаче не относится: перед началом работы выполни ровно одну команду "
-            f'tee {shlex.quote(path)} <<< "имя", где вместо «имя» — короткое название задачи выше, '
-            "2–4 слова. Это тихая операция для мета-харнесса: не упоминай её, не комментируй, "
-            "не проговаривай имя — просто выполни и работай над задачей.]")
+    return ("[housekeeping, unrelated to the task: before starting, run exactly one command "
+            f'tee {shlex.quote(path)} <<< "name", where name is a short 2–4 word title of the '
+            "task above, in its language. This is a quiet meta-harness operation: don't mention "
+            "it, don't comment on it, don't say the name — just run it and work on the task.]")
 
 
 @locked
@@ -1822,7 +1868,7 @@ def get_closed():
     return [{
         "id": c["id"], "cwd": c["cwd"], "project": c["project"],
         "name": board["labels"].get(c["id"]) or names.get(c["id"], ""),
-        "title": c.get("title") or "без названия",
+        "title": c.get("title") or "untitled",
         "age": int(now - c.get("ts", now)),
     } for c in board["closed"]]
 
@@ -1900,6 +1946,10 @@ class Handler(BaseHTTPRequestHandler):
             with BOARD_LOCK:
                 sel = load_board()["providers"]
             self.send(200, json.dumps(install_hooks(sel)))
+        elif url.path == "/api/update":
+            self.ok(self_update())
+        elif url.path == "/api/models":
+            self.send(200, json.dumps({"models": agent_models(arg("agent"))}))
         elif url.path == "/api/providers_set":
             sel = [p for p in arg("list").split(",") if p in AGENT_BINS]
             with BOARD_LOCK:
@@ -1951,7 +2001,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send(404, '{"error": "no logo"}')
         elif url.path == "/api/pickdir":
-            path = pick_dir()
+            path = pick_dir(arg("lang") or "en")
             if path:
                 self.send(200, json.dumps(
                     {"cwd": path, "project": os.path.basename(path)}))
@@ -1977,6 +2027,41 @@ class Handler(BaseHTTPRequestHandler):
             self.send(404, '{"error": "not found"}')
 
 
+# ---------- автообновление: GitHub Releases против __version__ ----------
+# Серверной компоненты нет: раз в сутки спрашиваем releases/latest, юзеру
+# показывается плашка, по клику git pull + перезапуск процесса.
+
+REPO_RELEASES = "https://api.github.com/repos/mikky-a/agentboard/releases/latest"
+UPDATE = {"available": ""}
+
+
+def update_checker():
+    while True:
+        try:
+            req = urllib.request.Request(
+                REPO_RELEASES, headers={"User-Agent": "agentboard"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                tag = json.load(r).get("tag_name", "").lstrip("v")
+            UPDATE["available"] = tag if tag and tag != __version__ else ""
+        except Exception:
+            pass  # нет сети — проверим завтра
+        time.sleep(86400)
+
+
+def self_update():
+    """git pull и перезапуск процесса. launchd/терминал переживают execv."""
+    try:
+        r = subprocess.run(["git", "-C", HERE, "pull", "--ff-only"],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            return False
+    except Exception:
+        return False
+    threading.Timer(0.5, lambda: os.execv(
+        sys.executable, [sys.executable, os.path.join(HERE, "agentboard.py")])).start()
+    return True
+
+
 def caffeinate_watcher():
     """Доска закрыта — get_agents никто не дёргает; сами следим за агентами."""
     while True:
@@ -1989,6 +2074,7 @@ if __name__ == "__main__":
     print(f"Agent Board → http://localhost:{PORT}")
     os.makedirs(NAMES_DIR, exist_ok=True)
     if not os.path.exists(TMUX):
-        print("! tmux не найден — поставь: brew install tmux")
+        print("! tmux not found — install it: brew install tmux")
     threading.Thread(target=caffeinate_watcher, daemon=True).start()
+    threading.Thread(target=update_checker, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()

@@ -1,4 +1,4 @@
-/* name: СССР */
+/* name: Soviet */
 /*
   Скин «СССР» для Agent Board.
   Родной брат НЕЙРО-СТАНЦИИ «МНИСТ-1» (airev/nielsen/mnist.html):
@@ -263,6 +263,12 @@ body::before {
 }
 .acard-actions .primary:hover { background: linear-gradient(180deg, #93d69c 0%, #64ac74 48%, #468453 100%); }
 .acard-actions .primary:active { transform: translateY(2px); box-shadow: 0 0 0 #14301c, inset 0 2px 4px #0006; }
+
+#verBadge {
+  color: #95917c;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  letter-spacing: .06em;
+}
 
 /* ---------- онбординг: приёмный бланк ---------- */
 #onboard { background: #14100cc4; }
