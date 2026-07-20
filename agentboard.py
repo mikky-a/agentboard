@@ -2088,6 +2088,13 @@ REPO_RELEASES = "https://api.github.com/repos/mikky-a/agentboard/releases/latest
 UPDATE = {"available": ""}
 
 
+def _ver(v):
+    try:
+        return tuple(int(x) for x in v.split("."))
+    except ValueError:
+        return ()
+
+
 def update_checker():
     modelsdev()  # прогреваем каталог имён, чтобы первый пикер не ждал сеть
     while True:
@@ -2096,7 +2103,8 @@ def update_checker():
                 REPO_RELEASES, headers={"User-Agent": "agentboard"})
             with urllib.request.urlopen(req, timeout=15) as r:
                 tag = json.load(r).get("tag_name", "").lstrip("v")
-            UPDATE["available"] = tag if tag and tag != __version__ else ""
+            # строго новее: «отличается» предлагал бы и даунгрейд
+            UPDATE["available"] = tag if _ver(tag) > _ver(__version__) else ""
         except Exception:
             pass  # нет сети — проверим завтра
         time.sleep(86400)
