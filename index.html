@@ -115,6 +115,10 @@
     -webkit-mask-image: url('/assets/agent-cursor.svg');
     mask-image: url('/assets/agent-cursor.svg');
   }
+  .agent-logo-opencode {
+    -webkit-mask-image: url('/assets/agent-opencode.svg');
+    mask-image: url('/assets/agent-opencode.svg');
+  }
   .hint { margin-left: auto; color: #5f7a6b; font-size: 12px; }
 
   #canvas { position: relative; min-width: 100vw; min-height: 100vh; }
@@ -268,7 +272,8 @@
     visibility: visible; opacity: 1;
   }
   .meta-tip .agent-logo { width: 18px; height: 18px; }
-  .meta-tip .agent-logo-codex, .meta-tip .agent-logo-cursor { color: #205c3b; }
+  .meta-tip .agent-logo-codex, .meta-tip .agent-logo-cursor,
+  .meta-tip .agent-logo-opencode { color: #205c3b; }
   .meta-tip-copy { display: grid; gap: 1px; min-width: 0; }
   .meta-tip-main { font-size: 11px; font-weight: 700; line-height: 1.25; white-space: nowrap; }
   .meta-tip-time { color: #5f6f66; font-size: 10.5px; line-height: 1.25; white-space: nowrap; }
@@ -560,7 +565,7 @@
     <span id="stale" hidden style="color:#e8b44b;font-size:12px;font-weight:600">страница устарела — нажми Cmd+R</span>
     <span class="sp"></span>
     <span class="wbadge hooksbar" id="hooksbar" hidden
-          title="хуки в конфигах Claude Code и Codex сообщают доске, когда агент ждёт разрешения">
+          title="хуки в конфигах CLI-агентов (Claude Code, Codex, Cursor, opencode) сообщают доске, когда агент ждёт разрешения">
       <i class="wdot"></i><span id="hooksbarText">доска не видит статусы агентов</span>
       <button class="top-btn" id="hooksFix">включить хуки</button>
     </span>
@@ -1047,7 +1052,7 @@
   }
 
   // шаг 2: задача для нового агента или резюм из истории
-  const AGENT_LABELS = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor' };
+  const AGENT_LABELS = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', opencode: 'opencode' };
 
   function agentIcon(agent) {
     const label = AGENT_LABELS[agent];
@@ -1055,7 +1060,7 @@
            label + '" title="' + label + '"></span>';
   }
 
-  // движки: модель/ризонинг и дефолты; cursor добавим позже
+  // движки: модель/ризонинг и дефолты
   const ENGINES = {
     claude: {
       label: 'Claude',
@@ -1068,7 +1073,23 @@
       models: [{ id: 'gpt-5.6-sol', l: 'GPT-5.6 Sol', def: 1 }, { id: 'gpt-5.6-codex', l: 'GPT-5.6 Codex' }],
       levels: ['minimal', 'low', 'medium', 'high', 'xhigh'], defL: 'high',
     },
+    // у cursor и opencode модель берётся из их собственных настроек
+    cursor: {
+      label: 'Cursor',
+      models: [{ id: '', l: 'дефолт', def: 1 }],
+      levels: [], defL: '',
+    },
+    opencode: {
+      label: 'opencode',
+      models: [{ id: '', l: 'дефолт', def: 1 }],
+      levels: [], defL: '',
+    },
   };
+
+  function engineAvailable(id) {
+    return { claude: true, codex: codexAvailable,
+             cursor: cursorAvailable, opencode: opencodeAvailable }[id] || false;
+  }
 
   const LAST_MODEL_KEY = 'agentboard-last-model';
 
@@ -1082,7 +1103,7 @@
     try {
       const saved = JSON.parse(localStorage.getItem(LAST_MODEL_KEY) || 'null');
       const E = saved && ENGINES[saved.eng];
-      if (!E || (saved.eng === 'codex' && !codexAvailable) ||
+      if (!E || !engineAvailable(saved.eng) ||
           !E.models.some(m => m.id === saved.model)) return fallback;
       return { eng: saved.eng, model: saved.model };
     } catch (_) {
@@ -1111,7 +1132,7 @@
         (E.levels.length ? ' · ' + st.level : '') + '<span class="chev">▲</span></button>' +
         '<div class="emenu" id="cfgMenu">' +
         '<div class="m-engines">' + Object.keys(ENGINES)
-          .filter(id => id !== 'codex' || codexAvailable)
+          .filter(engineAvailable)
           .map(id => '<button class="eng' + (id === st.eng ? ' on' : '') + '" data-e="' + id + '" title="' +
                      ENGINES[id].label + '">' + agentIcon(id) + '</button>').join('') + '</div>' +
         '<div class="m-label">модель</div>' +
@@ -1281,7 +1302,7 @@
 
   // ---------- опрос ----------
   let pageVer = null;
-  let codexAvailable = false;
+  let codexAvailable = false, cursorAvailable = false, opencodeAvailable = false;
 
   // ---------- звук «жду тебя»: короткий динь при появлении жёлтого статуса ----------
   let audioCtx;
@@ -1314,7 +1335,8 @@
   document.getElementById('hooksFix').addEventListener('click', async () => {
     const r = await api('hooks_install') || {};
     const bar = document.getElementById('hooksbar');
-    if (r.claude && (!codexAvailable || r.codex)) {
+    if (r.claude && (!codexAvailable || r.codex) && (!cursorAvailable || r.cursor) &&
+        (!opencodeAvailable || r.opencode)) {
       bar.dataset.done = '1';
       document.getElementById('hooksbarText').textContent =
         'готово — перезапусти сессии агентов';
@@ -1332,6 +1354,8 @@
     lastAgents = data.agents;
     projects = data.workspaces;
     codexAvailable = !!data.codex;
+    cursorAvailable = !!data.cursor;
+    opencodeAvailable = !!data.opencode;
     if (pageVer === null) pageVer = data.page;
     else document.getElementById('stale').hidden = (data.page === pageVer);
 
@@ -1368,7 +1392,8 @@
     const bar = document.getElementById('hooksbar');
     if (!bar.dataset.done) {
       const hk = data.hooks || {};
-      bar.hidden = !(!hk.claude || (codexAvailable && !hk.codex));
+      bar.hidden = !(!hk.claude || (codexAvailable && !hk.codex) ||
+                     (cursorAvailable && !hk.cursor) || (opencodeAvailable && !hk.opencode));
     }
 
     // фильтр по папкам: чипы в баре, скрываем чужие карточки

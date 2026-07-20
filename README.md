@@ -4,7 +4,7 @@ A spatial board for your AI coding agents (Miro-style): one card = one conversat
 Agents run in tmux underneath; drag cards around, group them by project, see at a
 glance who is working, who finished, and who is waiting for your reply.
 
-Supported today: **Claude Code** and **Codex CLI**. On the roadmap: Cursor CLI and opencode.
+Supported today: **Claude Code**, **Codex CLI**, **Cursor CLI**, and **opencode**.
 
 - **＋ agent** — pick a project folder, type a task → the agent starts as a tile
   and works in the background, no terminal window. When the card blinks yellow,
@@ -21,7 +21,8 @@ The UI is currently in Russian — English localization is in progress.
 
 - macOS 13+
 - `tmux` (`brew install tmux`)
-- [Claude Code](https://claude.com/claude-code) and/or [Codex CLI](https://github.com/openai/codex)
+- Any of: [Claude Code](https://claude.com/claude-code), [Codex CLI](https://github.com/openai/codex),
+  [Cursor CLI](https://cursor.com/docs/cli), [opencode](https://opencode.ai)
 - Python 3 (system one is fine, stdlib only — no pip packages)
 
 ## Quickstart
@@ -33,11 +34,15 @@ python3 agentboard.py        # → http://localhost:8787
 ```
 
 Open the board in a browser. If status hooks are not installed yet, a banner
-appears in the top bar — click it once. It idempotently adds lifecycle hooks to
-`~/.claude/settings.json` and `~/.codex/hooks.json` (backing up your originals
-as `*.agentboard-bak`) so agents can report their status to the board. Restart
-any live agent sessions after installing; Codex will ask to trust the new
-hooks — choose "Trust all and continue".
+appears in the top bar — click it once. It idempotently adds lifecycle hooks
+for every CLI you have installed (backing up your originals as
+`*.agentboard-bak`): `~/.claude/settings.json`, `~/.codex/hooks.json`,
+`~/.cursor/hooks.json` (plus a `Shell(tee)` allowlist entry — Cursor's CLI
+ignores hook permission responses), and an opencode plugin in
+`~/.config/opencode/plugins/`. Restart any live agent sessions after
+installing; Codex will ask to trust the new hooks — choose "Trust all and
+continue". Cursor shows a one-time Workspace Trust prompt the first time it
+runs in a new folder.
 
 ## Statuses
 
@@ -91,10 +96,10 @@ Then `launchctl load ~/Library/LaunchAgents/com.agentboard.plist`.
 
 ## Roadmap
 
-- Onboarding: pick which agents to connect (Claude Code / Codex / Cursor / opencode)
-- Cursor CLI and opencode support
+- Onboarding screen: pick which agents to connect
 - English UI
 - One-line installer and auto-update
+- Resume for paused Codex / Cursor / opencode cards (Claude only for now)
 
 ## License
 

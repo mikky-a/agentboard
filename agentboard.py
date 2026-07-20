@@ -10,11 +10,13 @@ Claude Code — вернуть можно через «+» из истории.
 Запуск: python3 agentboard.py → http://localhost:8787
 """
 import glob
+import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
@@ -30,11 +32,14 @@ TMUX = shutil.which("tmux") or "/opt/homebrew/bin/tmux"
 # иначе внутри агентов не находится `claude` и падает его автообновление
 AGENT_PATH = ":".join([
     os.path.expanduser("~/.local/bin"),
+    os.path.expanduser("~/.opencode/bin"),
     "/opt/homebrew/bin", "/usr/local/bin",
     "/usr/bin", "/bin", "/usr/sbin", "/sbin",
 ])
 CLAUDE = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
 CODEX = shutil.which("codex") or "/opt/homebrew/bin/codex"
+CURSOR = shutil.which("cursor-agent") or os.path.expanduser("~/.local/bin/cursor-agent")
+OPENCODE = shutil.which("opencode") or os.path.expanduser("~/.opencode/bin/opencode")
 STATUS_DIR = os.path.expanduser("~/.claude/agent-status")
 NAMES_DIR = f"/tmp/agentboard-{os.getuid()}-names"  # сюда агент первой командой пишет имя карточки
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
@@ -111,6 +116,10 @@ MODEL_LABELS = {
     "claude-haiku-4-5": "Haiku 4.5",
     "gpt-5.6-sol": "GPT-5.6 Sol",
     "gpt-5.6-codex": "GPT-5.6 Codex",
+    "composer-2.5": "Composer 2.5",
+    "composer-2.5-fast": "Composer 2.5 Fast",
+    "openrouter/moonshotai/kimi-k3": "Kimi K3",
+    "moonshotai/kimi-k3": "Kimi K3",
 }
 
 
@@ -252,11 +261,190 @@ def _read_json(path):
 def hooks_state():
     claude_cfg, claude_ok = _read_json(CLAUDE_SETTINGS)
     codex_cfg, codex_ok = _read_json(CODEX_HOOKS_FILE)
+    cursor_cfg, cursor_ok = _read_json(CURSOR_HOOKS_FILE)
     # «установлено» = хуки статусов + секция самоименования в глобальной памяти
     return {
         "claude": claude_ok and not _hooks_missing(claude_cfg) and _md_installed(CLAUDE_MD),
         "codex": codex_ok and not _hooks_missing(codex_cfg) and _md_installed(CODEX_MD),
+        "cursor": cursor_ok and not _cursor_missing(cursor_cfg) and _cursor_script_ok(),
+        "opencode": _opencode_plugin_ok() and _md_installed(OPENCODE_MD),
     }
+
+
+# ---- Cursor: свой формат hooks.json + скрипт (нужен разбор stdin) ----
+# У Cursor нет события «жду разрешения», поэтому waiting ставим перед каждым
+# shell/MCP-вызовом и снимаем после: одобренная команда снимает его сама, а
+# неодобренная так и держит карточку жёлтой. Заодно скрипт молча разрешает
+# команду самоименования tee — без него первый же шаг агента упирался бы
+# в диалог. Скрипт лежит рядом с конфигом, имя содержит HOOK_MARK.
+
+CURSOR_HOOKS_FILE = os.path.expanduser("~/.cursor/hooks.json")
+CURSOR_HOOK_SCRIPT = os.path.expanduser("~/.cursor/agent-status.sh")
+CURSOR_HOOK_EVENTS = {
+    "beforeSubmitPrompt": "working",
+    "beforeShellExecution": "shell",
+    "afterShellExecution": "working",
+    "beforeMCPExecution": "shell",
+    "afterMCPExecution": "working",
+    "postToolUse": "working",
+    "stop": "idle",
+}
+CURSOR_HOOK_SCRIPT_TEXT = """#!/bin/sh
+# Agent Board: статус агента для доски (ставится с доски, см. agentboard.py)
+IN=$(cat)
+case "$IN" in  # команду самоименования разрешаем всегда, tmux ей не нужен
+*"tee /tmp/agentboard-"*) [ "$1" = shell ] && { printf '{"permission":"allow"}'; exit 0; };;
+esac
+[ -n "$TMUX" ] || exit 0
+S=$(tmux display -p '#S' 2>/dev/null)
+[ -n "$S" ] || exit 0
+D="$HOME/.claude/agent-status"; mkdir -p "$D"
+if [ "$1" = shell ]; then
+  echo waiting > "$D/$S"
+else
+  echo "$1" > "$D/$S"
+fi
+exit 0
+"""
+
+
+def _cursor_missing(cfg):
+    hooks = cfg.get("hooks") or {}
+    return [ev for ev in CURSOR_HOOK_EVENTS
+            if not any(HOOK_MARK in h.get("command", "")
+                       for h in hooks.get(ev, []) or [])]
+
+
+def _cursor_script_ok():
+    try:
+        with open(CURSOR_HOOK_SCRIPT) as f:
+            return f.read() == CURSOR_HOOK_SCRIPT_TEXT
+    except OSError:
+        return False
+
+
+CURSOR_CLI_CONFIG = os.path.expanduser("~/.cursor/cli-config.json")
+
+
+def _install_cursor():
+    if not _cursor_script_ok():
+        os.makedirs(os.path.dirname(CURSOR_HOOK_SCRIPT), exist_ok=True)
+        with open(CURSOR_HOOK_SCRIPT, "w") as f:
+            f.write(CURSOR_HOOK_SCRIPT_TEXT)
+        os.chmod(CURSOR_HOOK_SCRIPT, 0o755)
+    # tee-имя без диалога: hook-ответ beforeShellExecution курсор игнорирует,
+    # поэтому штатный allowlist; tee — та же запись файла, что и его edit-тул
+    cfg, ok = _read_json(CURSOR_CLI_CONFIG)
+    if ok and "Shell(tee)" not in (cfg.get("permissions", {}).get("allow") or []):
+        if os.path.exists(CURSOR_CLI_CONFIG) and \
+                not os.path.exists(CURSOR_CLI_CONFIG + ".agentboard-bak"):
+            shutil.copy2(CURSOR_CLI_CONFIG, CURSOR_CLI_CONFIG + ".agentboard-bak")
+        cfg.setdefault("permissions", {}).setdefault("allow", []).append("Shell(tee)")
+        tmp = CURSOR_CLI_CONFIG + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(tmp, CURSOR_CLI_CONFIG)
+    cfg, ok = _read_json(CURSOR_HOOKS_FILE)
+    if not ok:
+        return
+    missing = _cursor_missing(cfg)
+    if not missing:
+        return
+    if os.path.exists(CURSOR_HOOKS_FILE) and \
+            not os.path.exists(CURSOR_HOOKS_FILE + ".agentboard-bak"):
+        shutil.copy2(CURSOR_HOOKS_FILE, CURSOR_HOOKS_FILE + ".agentboard-bak")
+    cfg.setdefault("version", 1)
+    hooks = cfg.setdefault("hooks", {})
+    for ev in missing:
+        hooks.setdefault(ev, []).append(
+            {"command": f"{CURSOR_HOOK_SCRIPT} {CURSOR_HOOK_EVENTS[ev]}"})
+    tmp = CURSOR_HOOKS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    os.replace(tmp, CURSOR_HOOKS_FILE)
+
+
+# ---- opencode: плагин со статус-событиями + разрешение на tee в конфиге ----
+
+OPENCODE_PLUGIN = os.path.expanduser("~/.config/opencode/plugins/agent-status.js")
+# пишем в тот конфиг, что уже есть у юзера (jsonc с комментариями не парсим — пропустим)
+OPENCODE_CONFIG = next(
+    (p for p in (os.path.expanduser("~/.config/opencode/opencode.json"),
+                 os.path.expanduser("~/.config/opencode/opencode.jsonc"))
+     if os.path.exists(p)),
+    os.path.expanduser("~/.config/opencode/opencode.json"))
+OPENCODE_TEE = "tee /tmp/agentboard-*"
+OPENCODE_PLUGIN_TEXT = """// Agent Board: agent-status — пишет статус агента для доски (см. agentboard.py)
+import { execSync } from "node:child_process"
+import fs from "node:fs"
+import os from "node:os"
+
+const MAP = {
+  "permission.asked": "waiting",
+  "permission.replied": "working",
+  "tool.execute.after": "working",
+  "message.part.updated": "working",
+  "session.idle": "idle",
+}
+
+function write(status) {
+  try {
+    if (!process.env.TMUX) return
+    const s = execSync("tmux display -p '#S'", { timeout: 3000 }).toString().trim()
+    if (!s) return
+    const dir = os.homedir() + "/.claude/agent-status"
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(dir + "/" + s, status)
+  } catch {}
+}
+
+export const AgentBoardStatus = async () => ({
+  event: async ({ event }) => {
+    const status = MAP[event && event.type]
+    if (status) write(status)
+  },
+})
+"""
+
+
+def _opencode_plugin_ok():
+    try:
+        with open(OPENCODE_PLUGIN) as f:
+            return f.read() == OPENCODE_PLUGIN_TEXT
+    except OSError:
+        return False
+
+
+def _install_opencode():
+    if not _opencode_plugin_ok():
+        os.makedirs(os.path.dirname(OPENCODE_PLUGIN), exist_ok=True)
+        with open(OPENCODE_PLUGIN, "w") as f:
+            f.write(OPENCODE_PLUGIN_TEXT)
+    # tee-имя без диалога разрешения (как --settings у claude)
+    cfg, ok = _read_json(OPENCODE_CONFIG)
+    if not ok:
+        return
+    perm = cfg.setdefault("permission", {})
+    bash = perm.get("bash")
+    if bash == "allow" or (isinstance(bash, dict) and OPENCODE_TEE in bash):
+        return
+    if isinstance(bash, str):  # строка-политика юзера — переносим в шаблоны
+        perm["bash"] = {OPENCODE_TEE: "allow", "*": bash}
+    elif isinstance(bash, dict):
+        bash[OPENCODE_TEE] = "allow"
+    else:
+        perm["bash"] = {OPENCODE_TEE: "allow"}
+    if os.path.exists(OPENCODE_CONFIG) and \
+            not os.path.exists(OPENCODE_CONFIG + ".agentboard-bak"):
+        shutil.copy2(OPENCODE_CONFIG, OPENCODE_CONFIG + ".agentboard-bak")
+    os.makedirs(os.path.dirname(OPENCODE_CONFIG), exist_ok=True)
+    tmp = OPENCODE_CONFIG + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    os.replace(tmp, OPENCODE_CONFIG)
 
 
 def _install_into(path, extra=None):
@@ -299,6 +487,9 @@ def _install_into(path, extra=None):
 
 CLAUDE_MD = os.path.expanduser("~/.claude/CLAUDE.md")
 CODEX_MD = os.path.expanduser("~/.codex/AGENTS.md")
+OPENCODE_MD = os.path.expanduser("~/.config/opencode/AGENTS.md")
+# у Cursor CLI глобального файла правил нет — он всегда получает фолбэк-хвост
+AGENT_MD = {"claude": CLAUDE_MD, "codex": CODEX_MD, "opencode": OPENCODE_MD}
 NAME_SECTION_MARK = "## Agent Board (мета-харнесс)"
 NAME_SECTION = f"""{NAME_SECTION_MARK}
 
@@ -358,6 +549,12 @@ def install_hooks():
     _install_into(CODEX_HOOKS_FILE)
     _install_md(CLAUDE_MD)
     _install_md(CODEX_MD)
+    # cursor/opencode — только установленным CLI, чтобы не мусорить в чужих конфигах
+    if os.path.exists(CURSOR):
+        _install_cursor()
+    if os.path.exists(OPENCODE):
+        _install_opencode()
+        _install_md(OPENCODE_MD)
     return hooks_state()
 
 
@@ -807,6 +1004,227 @@ def codex_turn_preview(path):
     return text
 
 
+# ---------- сессии Cursor: ~/.cursor/chats/<md5(cwd)>/<uuid>/store.db ----------
+
+CURSOR_CHATS = os.path.expanduser("~/.cursor/chats")
+cursor_model_cache = {}  # путь store.db -> имя модели из блобов
+
+
+def _cursor_meta(db):
+    try:
+        with open(os.path.join(os.path.dirname(db), "meta.json")) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def cursor_chat(cwd, created, exclude=()):
+    """Свежайший чат Cursor этой папки, тронутый после старта tmux-сессии."""
+    h = hashlib.md5(cwd.encode()).hexdigest()
+    best, best_t = "", 0
+    for db in glob.glob(os.path.join(CURSOR_CHATS, h, "*", "store.db")):
+        if db in exclude:
+            continue
+        t = _cursor_meta(db).get("updatedAtMs", 0)
+        if t < (created - 60) * 1000 or t <= best_t:
+            continue
+        best, best_t = db, t
+    return best
+
+
+def cursor_turn_preview(db):
+    """Последний тур из store.db: JSON-блобы сообщений в порядке вставки."""
+    stamp = _cursor_meta(db).get("updatedAtMs", 0)  # mtime базы не годится (WAL)
+    hit = preview_cache.get(db)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    items = []
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1)
+        con.text_factory = bytes  # среди блобов есть protobuf — не декодируется
+        rows = con.execute("SELECT data FROM blobs ORDER BY rowid").fetchall()
+        con.close()
+    except sqlite3.Error:
+        return ""
+    for (raw,) in rows:
+        if not raw or not raw.startswith(b'{"role":'):
+            continue
+        try:
+            r = json.loads(raw.decode("utf-8", "ignore"))
+        except ValueError:
+            continue
+        content = r.get("content")
+        if r.get("role") == "user":
+            text = content if isinstance(content, str) else " ".join(
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") == "text")
+            m = re.search(r"<user_query>\s*(.*?)\s*</user_query>", text, re.S)
+            text = m.group(1) if m else text.strip()
+            text = NAME_RE.sub("", text).strip()
+            if text and not text.startswith("<"):
+                items.append(("user", text))
+        elif r.get("role") == "assistant" and isinstance(content, list):
+            for b in content:
+                if not isinstance(b, dict):
+                    continue
+                model = (b.get("providerOptions") or {}).get("cursor", {}).get("modelName")
+                if model:
+                    cursor_model_cache[db] = model
+                if b.get("type") == "text" and b.get("text", "").strip():
+                    items.append(("assistant", b["text"].strip()))
+                elif b.get("type") in ("tool-call", "tool_call"):
+                    args = b.get("args") or b.get("input") or {}
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except ValueError:
+                            args = {}
+                    detail = (args.get("command") or args.get("cmd")
+                              or args.get("file_path") or args.get("path")
+                              or args.get("pattern") or args.get("query") or "")
+                    detail = " ".join(str(detail).split())[:60]
+                    name = b.get("toolName") or b.get("name") or "tool"
+                    items.append(("tool", f"{name}({detail or '…'})"))
+    start = max((i for i, (k, _) in enumerate(items) if k == "user"), default=None)
+    if start is None:
+        preview_cache[db] = (stamp, "")
+        return ""
+    out = ["> " + " ".join(items[start][1].split())[:500]]
+    for kind, text in items[start + 1:]:
+        out.append("⏺ " + text if kind == "tool" else text)
+    text = "\n".join("\n\n".join(out).splitlines()[-500:])
+    preview_cache[db] = (stamp, text)
+    return text
+
+
+# ---------- сессии opencode: общий sqlite ~/.local/share/opencode ----------
+
+OPENCODE_DB = os.path.expanduser("~/.local/share/opencode/opencode.db")
+
+
+def _opencode_q(sql, args=()):
+    try:
+        con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=1)
+        rows = con.execute(sql, args).fetchall()
+        con.close()
+        return rows
+    except sqlite3.Error:
+        return []
+
+
+def opencode_session(cwd, created, exclude=()):
+    """id свежайшей сессии opencode этой папки после старта tmux-сессии."""
+    for (sid,) in _opencode_q(
+            "SELECT id FROM session WHERE directory = ? AND time_updated >= ? "
+            "ORDER BY time_updated DESC", (cwd, int((created - 60) * 1000))):
+        if sid not in exclude:
+            return sid
+    return ""
+
+
+def opencode_meta(sid):
+    """(activity, model) сессии — из её строки в базе."""
+    rows = _opencode_q("SELECT time_updated, model FROM session WHERE id = ?", (sid,))
+    if not rows:
+        return 0, ""
+    t, model = rows[0]
+    if model and model.startswith("{"):  # модель хранится JSON-объектом
+        try:
+            m = json.loads(model)
+            model = m.get("id") or m.get("modelID") or ""
+        except ValueError:
+            model = ""
+    return int((t or 0) / 1000), model or ""
+
+
+def opencode_turn_preview(sid):
+    """Последний тур: message/part из общей базы, в хронологии."""
+    stamp = opencode_meta(sid)[0]
+    hit = preview_cache.get(sid)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    roles = dict(_opencode_q(
+        "SELECT id, json_extract(data, '$.role') FROM message "
+        "WHERE session_id = ?", (sid,)))
+    items = []
+    for mid, raw in _opencode_q(
+            "SELECT message_id, CAST(data AS TEXT) FROM part "
+            "WHERE session_id = ? ORDER BY time_created", (sid,)):
+        try:
+            p = json.loads(raw)
+        except ValueError:
+            continue
+        role = roles.get(mid, "")
+        if p.get("type") == "text" and p.get("text", "").strip():
+            text = p["text"].strip()
+            if role == "user":
+                text = NAME_RE.sub("", text).strip()
+                if not text or text.startswith("<"):
+                    continue
+            items.append((role, text))
+        elif p.get("type") == "tool":
+            inp = (p.get("state") or {}).get("input") or {}
+            detail = (inp.get("command") or inp.get("cmd") or inp.get("filePath")
+                      or inp.get("path") or inp.get("pattern") or "")
+            detail = " ".join(str(detail).split())[:60]
+            items.append(("tool", f"{p.get('tool', 'tool')}({detail or '…'})"))
+    start = max((i for i, (k, _) in enumerate(items) if k == "user"), default=None)
+    if start is None:
+        preview_cache[sid] = (stamp, "")
+        return ""
+    out = ["> " + " ".join(items[start][1].split())[:500]]
+    for kind, text in items[start + 1:]:
+        out.append("⏺ " + text if kind == "tool" else text)
+    text = "\n".join("\n\n".join(out).splitlines()[-500:])
+    preview_cache[sid] = (stamp, text)
+    return text
+
+
+# ---------- общий интерфейс к структурным логам не-клодов ----------
+# card["rollout"]: codex и cursor — путь к файлу лога, opencode — id сессии.
+
+def find_log(agent, cwd, created, exclude):
+    if agent == "codex":
+        return codex_rollout(cwd, created, exclude)
+    if agent == "cursor":
+        return cursor_chat(cwd, created, exclude)
+    if agent == "opencode":
+        return opencode_session(cwd, created, exclude)
+    return ""
+
+
+def log_valid(agent, ro):
+    if not ro:
+        return False
+    return bool(_opencode_q("SELECT 1 FROM session WHERE id = ?", (ro,))) \
+        if agent == "opencode" else os.path.isfile(ro)
+
+
+def log_stamp(agent, ro):
+    if agent == "codex":
+        return log_activity(ro)
+    if agent == "cursor":
+        return int(_cursor_meta(ro).get("updatedAtMs", 0) / 1000)
+    return opencode_meta(ro)[0]
+
+
+def log_model_of(agent, ro):
+    if agent == "codex":
+        return log_model(ro, "codex")
+    if agent == "cursor":
+        cursor_turn_preview(ro)  # модель добывается по пути разбора блобов
+        return cursor_model_cache.get(ro, "")
+    return opencode_meta(ro)[1]
+
+
+def log_preview(agent, ro):
+    if agent == "codex":
+        return codex_turn_preview(ro)
+    if agent == "cursor":
+        return cursor_turn_preview(ro)
+    return opencode_turn_preview(ro)
+
+
 # ---------- живые агенты (tmux) ----------
 
 def get_live():
@@ -943,32 +1361,32 @@ def get_agents():
             changed = True
         a["agent"] = card.get("agent", "claude")
         a["model"] = model_label(card.get("model", ""))
-        if a["agent"] == "codex":
-            # у codex нет claude-сессий — не привязываем разговор
+        if a["agent"] != "claude":
+            # у codex/cursor/opencode нет claude-сессий — не привязываем разговор
             a["cid"] = ""
             a["sname"] = ""
             a["label"] = card.get("label", "")
             a["logo"] = logo_version(a["path"])
             ro = card.get("rollout", "")
-            if not ro or not os.path.isfile(ro):
-                ro = codex_rollout(card["cwd"], a["created"],
-                                   {c.get("rollout") for c in cards_list
-                                    if c is not card and c.get("rollout")})
+            if not log_valid(a["agent"], ro):
+                ro = find_log(a["agent"], card["cwd"], a["created"],
+                              {c.get("rollout") for c in cards_list
+                               if c is not card and c.get("rollout")})
                 if ro:
                     card["rollout"] = ro
                     changed = True
-            # превью codex — только из структурного rollout-лога: в пейне на
-            # старте прокручивается служебный шум (MCP, лимиты), в логе его нет
+            # превью — только из структурного лога: в пейне на старте
+            # прокручивается служебный шум (MCP, лимиты), в логе его нет
             a["preview"] = ""
             if ro:
-                a["activity"] = log_activity(ro) or a["activity"]
-                found_model = log_model(ro, "codex")
+                a["activity"] = log_stamp(a["agent"], ro) or a["activity"]
+                found_model = log_model_of(a["agent"], ro)
                 if found_model:
                     a["model"] = model_label(found_model)
                     if not card.get("model"):
                         card["model"] = found_model
                         changed = True
-                a["preview"] = codex_turn_preview(ro)
+                a["preview"] = log_preview(a["agent"], ro)
             continue
         # точная привязка: PID процесса claude внутри панели -> sessionId
         pids = pane_pids(a["name"])
@@ -1047,7 +1465,10 @@ def get_agents():
     return {"workspaces": [dict(w, logo=logo_version(w["cwd"]))
                            for w in board["workspaces"]],
             "agents": agents, "page": page,
-            "codex": os.path.exists(CODEX), "hooks": hooks_state()}
+            "codex": os.path.exists(CODEX),
+            "cursor": os.path.exists(CURSOR),
+            "opencode": os.path.exists(OPENCODE),
+            "hooks": hooks_state()}
 
 
 # ---------- действия ----------
@@ -1183,7 +1604,8 @@ def name_tail(name, agent="claude", cwd=""):
     (+logo — доска уже знает, что аватарки нет, агенту проверять не надо);
     не установлена — фолбэк, инструкция целиком."""
     path = os.path.join(NAMES_DIR, name)
-    if _md_installed(CODEX_MD if agent == "codex" else CLAUDE_MD):
+    md = AGENT_MD.get(agent)
+    if md and _md_installed(md):
         logo = " +logo" if cwd and not find_logo(cwd) else ""
         return f"[agentboard:{path}{logo}]"
     return ("[служебное, к задаче не относится: перед началом работы выполни ровно одну команду "
@@ -1204,6 +1626,14 @@ def new_agent(cwd, project, prompt="", agent="claude", model="", effort=""):
             parts += ["-m", model]
         if effort:
             parts += ["-c", f"model_reasoning_effort={effort}"]
+    elif agent == "cursor":
+        parts = [CURSOR]
+        if model:
+            parts += ["--model", model]
+    elif agent == "opencode":
+        parts = [OPENCODE]
+        if model:
+            parts += ["-m", model]
     else:
         parts = [CLAUDE]
         if model:
@@ -1215,7 +1645,11 @@ def new_agent(cwd, project, prompt="", agent="claude", model="", effort=""):
             settings["effortLevel"] = effort
         parts += ["--settings", json.dumps(settings)]
     if prompt.strip():
-        parts.append(prompt + "\n\n" + name_tail(name, agent, cwd))
+        full = prompt + "\n\n" + name_tail(name, agent, cwd)
+        if agent == "opencode":
+            parts += ["--prompt", full]  # позиционный аргумент opencode — папка
+        else:
+            parts.append(full)
     cmd = " ".join(shlex.quote(p) for p in parts)
     cmd = f"export PATH={shlex.quote(AGENT_PATH)}; {cmd}"
     # -x/-y: без клиента tmux рожает 80×24 — TUI потом мажет при ресайзе;

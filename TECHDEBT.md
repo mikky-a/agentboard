@@ -2,6 +2,24 @@
 
 Не про код доски, а про среду, в которой живут агенты. Записано, наблюдаем.
 
+## Cursor и opencode: границы интеграции (2026-07-20)
+
+- «Продолжить» после паузы умеет только claude: карточки codex/cursor/opencode
+  без sessionId исчезают с доски после смерти tmux-сессии. У всех троих resume
+  есть в CLI (`codex resume`, `cursor-agent --resume <chatId>`, `opencode -s <id>`),
+  id мы уже храним в `card["rollout"]` — осталось дописать resume_card.
+- Cursor CLI игнорирует ответ `{"permission":"allow"}` из beforeShellExecution-хука
+  (in-process runner). Поэтому tee-имя разрешено через allowlist `Shell(tee)`
+  в `~/.cursor/cli-config.json`. Если починят — вернуть точечное разрешение в хук.
+- У Cursor нет события «жду разрешения»: waiting ставится перед каждым shell/MCP
+  и снимается после. Долгая авто-разрешённая команда какое-то время выглядит
+  как «ждёт» (панель-эвристика это гасит).
+- opencode с дефолтными правами почти не спрашивает разрешений — plugin ловит
+  permission.asked, но в тесте событие не стрельнуло ни разу. Проверить на
+  строгом konfigе (permission.bash = "ask").
+- Первый запуск Cursor в новой папке — диалог Workspace Trust в карточке,
+  одно нажатие «a». Trust запоминается per-папка.
+
 ## «API Error: Stream idle timeout - no chunks received» (2026-07-19)
 
 Сессия внезапно останавливается после tool-вызова: следующий запрос к API
