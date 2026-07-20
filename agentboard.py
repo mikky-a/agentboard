@@ -26,7 +26,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 PORT = 8787
 TMUX = shutil.which("tmux") or "/opt/homebrew/bin/tmux"
@@ -601,6 +601,7 @@ def load_board():
     data.setdefault("labels", {})  # id разговора -> имя; живёт дольше карточки
     data.setdefault("closed", [])  # недавно убранные с доски — можно вернуть
     data.setdefault("providers", None)  # None = онбординг ещё не пройден
+    data.setdefault("models", {})  # agent -> {"favs": [id...], "def": id}
     return data
 
 
@@ -1491,20 +1492,41 @@ def get_agents():
             "cursor": os.path.exists(CURSOR),
             "opencode": os.path.exists(OPENCODE),
             "providers": board["providers"],
+            "models": board["models"],
             "version": __version__, "update": UPDATE["available"],
             "hooks": hooks_state()}
 
 
 # ---------- действия ----------
 
-# ---------- списки моделей cursor/opencode: спрашиваем сами CLI ----------
+# ---------- каталоги моделей: сами CLI + имена из models.dev ----------
+# models.dev — открытый каталог, которым пользуется сам opencode: даёт
+# человеческие имена («Kimi K3») для url-подобных id и имена провайдеров.
+
+MODELSDEV_URL = "https://models.dev/api.json"
+_modelsdev = {"t": 0.0, "data": {}}
+
+
+def modelsdev():
+    if _modelsdev["data"] and time.time() - _modelsdev["t"] < 86400:
+        return _modelsdev["data"]
+    try:
+        req = urllib.request.Request(MODELSDEV_URL, headers={"User-Agent": "agentboard"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            _modelsdev["data"] = json.load(r)
+            _modelsdev["t"] = time.time()
+    except Exception:
+        pass  # без сети остаёмся на голых id
+    return _modelsdev["data"]
+
 
 models_cache = {}  # agent -> (ts, список)
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def agent_models(agent):
-    """Модели, которые CLI сам предлагает; кэш 10 минут (сабпроцесс небыстрый)."""
+    """Каталог моделей агента: cursor/opencode спрашиваем у CLI, codex — по
+    линейке openai в models.dev (своей команды списка у него нет). Кэш 10 мин."""
     hit = models_cache.get(agent)
     if hit and time.time() - hit[0] < 600:
         return hit[1]
@@ -1526,9 +1548,27 @@ def agent_models(agent):
                                capture_output=True, text=True, timeout=30)
             cfg, _ = _read_json(OPENCODE_CONFIG)
             default = cfg.get("model", "")
+            cat = modelsdev()
             for mid in r.stdout.split():
-                if "/" in mid:
-                    out.append({"id": mid, "l": mid, "def": mid == default})
+                if "/" not in mid:
+                    continue
+                prov, _sep, rest = mid.partition("/")
+                pcat = cat.get(prov) or {}
+                name = (pcat.get("models", {}).get(rest) or {}).get("name")
+                out.append({"id": mid, "l": name or rest,
+                            "prov": pcat.get("name") or prov,
+                            "def": mid == default})
+        elif agent == "codex":
+            ms = (modelsdev().get("openai") or {}).get("models", {})
+            for mid, m in sorted(ms.items(), reverse=True):
+                if "codex" in mid or mid.startswith("gpt-5"):
+                    out.append({"id": mid, "l": m.get("name") or mid,
+                                "def": mid == "gpt-5.6-sol"})
+        elif agent == "claude":
+            out = [{"id": "fable", "l": "Fable 5", "def": True},
+                   {"id": "opus", "l": "Opus 4.8", "def": False},
+                   {"id": "sonnet", "l": "Sonnet 5", "def": False},
+                   {"id": "haiku", "l": "Haiku 4.5", "def": False}]
     except Exception:
         pass
     if out:
@@ -1950,6 +1990,19 @@ class Handler(BaseHTTPRequestHandler):
             self.ok(self_update())
         elif url.path == "/api/models":
             self.send(200, json.dumps({"models": agent_models(arg("agent"))}))
+        elif url.path == "/api/models_set":
+            agent = arg("agent")
+            if agent not in AGENT_BINS:
+                self.ok(False)
+                return
+            with BOARD_LOCK:
+                board = load_board()
+                board["models"][agent] = {
+                    "favs": [m for m in arg("favs").split(",") if m],
+                    "def": arg("def"),
+                }
+                save_board(board)
+            self.ok()
         elif url.path == "/api/providers_set":
             sel = [p for p in arg("list").split(",") if p in AGENT_BINS]
             with BOARD_LOCK:
@@ -2036,6 +2089,7 @@ UPDATE = {"available": ""}
 
 
 def update_checker():
+    modelsdev()  # прогреваем каталог имён, чтобы первый пикер не ждал сеть
     while True:
         try:
             req = urllib.request.Request(

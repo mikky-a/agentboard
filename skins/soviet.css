@@ -294,6 +294,21 @@ body::before {
 .ob-row .ck { color: #2e6b3a; }
 .ob-row .m { color: #7a6f50; }
 
+/* ---------- окно «агенты и модели»: тот же приёмный бланк ---------- */
+.mw-rail, .mw-search-wrap { border-color: #948a6f; }
+.mw-rail .ob-row.sel { background: #d9d0b0; outline-color: #948a6f; }
+.mw-fav:hover, .mw-row:hover { background: #d9d0b0; }
+.mw-fav .nm, .mw-row .nm { color: #2e2b20; font-weight: 700; }
+.mw-id, .mw-hint, .mw-rail .cnt { color: #7a6f50; }
+.mw-note { color: #948a6f; }
+.mw-prov { color: #2b4d68; background: #cfd8d3; border-color: #7d8f85; }
+.mw-def { color: #2e6b3a; background: #cfd8c8; border-color: #6f8a68; }
+.mw-def.off { color: #7a6f50; background: transparent; border-color: #948a6f; }
+.mw-fav .star, .mw-row:hover .star { color: #8a642a; }
+.mw-row .star { color: #b7ab8a; }
+.mw-fav .x:hover { color: #b3362a; }
+.m-search { border-bottom-color: #948a6f; color: #2e2b20; }
+
 /* ---------- попап: служебный бланк, бумага АЦПУ ---------- */
 #popover {
   background: #e9e2c9;

@@ -422,13 +422,13 @@
   #popover .po-sub .po-empty { padding: 8px 12px; font-size: 12px; }
   @keyframes subIn { from { opacity: 0; transform: translateY(-3px); } }
 
-  /* ---------- онбординг: какие агенты подключить ---------- */
-  #onboard {
+  /* ---------- онбординг и окно моделей: оверлеи ---------- */
+  #onboard, #modelsWin {
     position: fixed; inset: 0; z-index: 80;
     display: none; align-items: center; justify-content: center;
     background: rgba(4,8,6,0.72);
   }
-  #onboard.show { display: flex; }
+  #onboard.show, #modelsWin.show { display: flex; }
   .ob-card {
     width: 420px; max-width: calc(100vw - 40px);
     background: #101713; border: 1px solid #35473c; border-radius: 12px;
@@ -453,6 +453,51 @@
   .ob-foot .m { color: #5f7a6b; font-size: 11px; }
   .ob-foot .top-btn { margin-left: auto; }
   @media (prefers-reduced-motion: reduce) { .ob-card { animation: none; } }
+
+  /* ---------- окно «агенты и модели»: избранное по каждому агенту ---------- */
+  .mw { width: 700px; }
+  .mw-cols { display: flex; min-height: 430px; }
+  .mw-rail { width: 185px; border-right: 1px solid #243028; padding: 8px; flex: none; }
+  .mw-rail .ob-row.sel { background: #17251d; outline: 1px solid #2c3a32; }
+  .mw-rail .cnt { margin-left: auto; color: #4f6156; font-size: 10.5px; }
+  .mw-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .mw-pane .m-label { padding: 10px 14px 4px; }
+  .mw-fav {
+    display: flex; align-items: center; gap: 9px; padding: 6px 14px;
+    font-size: 12.5px; font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  .mw-fav:hover { background: #141f19; }
+  .mw-fav .star { color: #e8b44b; cursor: pointer; flex: none; }
+  .mw-fav .nm { color: #d9e5dd; white-space: nowrap; }
+  .mw-id { color: #4f6156; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mw-sp { flex: 1; }
+  .mw-prov {
+    font-size: 9.5px; color: #7fa9c9; background: #16222b; border: 1px solid #24384a;
+    padding: 1px 7px; border-radius: 99px; flex: none;
+  }
+  .mw-def {
+    font-size: 9px; color: #5bd98a; border: 1px solid #2c4a38; background: #12241a;
+    padding: 1px 7px; border-radius: 99px; cursor: pointer; flex: none;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .mw-def.off { color: #4f6156; border-color: #243028; background: transparent; }
+  .mw-def.off:hover { color: #9fc7ae; }
+  .mw-fav .x { color: #4f6156; cursor: pointer; flex: none; padding: 0 2px; }
+  .mw-fav .x:hover { color: #e07a6a; }
+  .mw-hint { color: #4f6156; font-size: 11px; padding: 4px 14px 10px; }
+  .mw-search-wrap { border-top: 1px solid #243028; margin-top: auto; }
+  .mw-chips { display: flex; gap: 4px; padding: 8px 14px 0; flex-wrap: wrap; }
+  .mw-res { max-height: 165px; overflow-y: auto; padding-bottom: 8px; }
+  .mw-row {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    padding: 5px 14px; border: 0; background: transparent; color: #c7d4cc;
+    font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  .mw-row:hover { background: #1c2a22; }
+  .mw-row .star { color: #3a4a41; flex: none; }
+  .mw-row:hover .star { color: #e8b44b; }
+  .mw-note { color: #3f4c45; font-size: 10px; padding: 0 14px 10px; }
 
   /* ---------- композер нового агента ---------- */
   .composer {
@@ -643,6 +688,14 @@
     <div class="ob-foot"><span class="m" id="obHint"></span><button class="top-btn" id="obGo">Connect</button></div>
   </div></div>
 
+  <div id="modelsWin"><div class="ob-card mw">
+    <div class="ob-head" id="mwHead"></div>
+    <div class="mw-cols">
+      <div class="mw-rail" id="mwRail"></div>
+      <div class="mw-pane" id="mwPane"></div>
+    </div>
+  </div></div>
+
   <div id="empty">
     <div>
       The board is empty.<br>
@@ -705,6 +758,12 @@
       updateReady: 'new version', updateBtn: 'update', updating: 'updating…',
       updateFailed: 'update failed — pull by hand',
       searchModels: 'filter models…',
+      agentsModels: 'agents & models', favModels: 'favorite models',
+      favHint: 'only these show up in the ＋ agent picker',
+      addCatalog: 'add from catalog', searchCatalog: 'search: name or id…',
+      noFavs: 'empty — the picker shows the full catalog',
+      refine: 'showing part of the list — type to narrow down',
+      removeFav: 'remove from favorites',
     },
     ru: {
       stale: 'страница устарела — нажми Cmd+R',
@@ -757,6 +816,12 @@
       updateReady: 'есть обновление', updateBtn: 'обновить', updating: 'обновляю…',
       updateFailed: 'не обновилось — обнови руками',
       searchModels: 'фильтр моделей…',
+      agentsModels: 'агенты и модели', favModels: 'избранные модели',
+      favHint: 'в пикере «＋ агент» показываются только они',
+      addCatalog: 'добавить из каталога', searchCatalog: 'поиск: имя или id…',
+      noFavs: 'пусто — в пикере весь каталог',
+      refine: 'показана часть списка — уточни запрос',
+      removeFav: 'убрать из избранного',
     },
   };
   let LANG = localStorage.getItem('agentboard-lang') || (navigator.language && navigator.language.startsWith('ru') ? 'ru' : 'en');
@@ -1288,16 +1353,31 @@
     },
   };
 
-  // модели cursor/opencode спрашиваем у их CLI через сервер, один раз
+  // каталоги моделей спрашиваем у сервера (CLI + имена из models.dev), один раз
   async function loadModels(eng) {
     const E = ENGINES[eng];
     if (!E || E.loaded) return;
     const r = await api('models?agent=' + eng);
     if (r && r.models && r.models.length) {
-      E.models = r.models.map(m => ({ id: m.id, l: m.l, def: m.def ? 1 : 0 }));
+      E.models = r.models.map(m => ({ id: m.id, l: m.l, prov: m.prov || '', def: m.def ? 1 : 0 }));
       if (!E.models.some(m => m.def)) E.models[0].def = 1;
       E.loaded = true;
     }
+  }
+
+  // избранные модели (настройки → агенты и модели); пикер видит только их
+  let modelPrefs = {};   // agent -> {favs: [id...], def: id}
+
+  function pickerModels(eng) {
+    const E = ENGINES[eng];
+    const p = modelPrefs[eng];
+    if (!p || !p.favs || !p.favs.length) return E.models;
+    const byId = {};
+    E.models.forEach(m => { byId[m.id] = m; });
+    return p.favs.map(id => ({
+      id, l: (byId[id] || {}).l || id,
+      def: id === (p.def || p.favs[0]) ? 1 : 0,
+    }));
   }
 
   function engineAvailable(id) {
@@ -1307,7 +1387,7 @@
   const LAST_MODEL_KEY = 'agentboard-last-model';
 
   function defaultModel(engine) {
-    const models = ENGINES[engine].models;
+    const models = pickerModels(engine);
     return (models.find(m => m.def) || models[0]).id;
   }
 
@@ -1341,8 +1421,9 @@
 
     function paint() {
       const E = ENGINES[st.eng];
-      const mSel = E.models.find(m => m.id === st.model)
-                   || E.models.find(m => m.def) || E.models[0];
+      const models = pickerModels(st.eng);
+      const mSel = models.find(m => m.id === st.model)
+                   || models.find(m => m.def) || models[0];
       st.model = mSel.id;
       const mLabel = mSel.l || t('default');
       showPopover(x, y,
@@ -1358,10 +1439,10 @@
           .map(id => '<button class="eng' + (id === st.eng ? ' on' : '') + '" data-e="' + id + '" title="' +
                      ENGINES[id].label + '">' + agentIcon(id) + '</button>').join('') + '</div>' +
         '<div class="m-label">' + t('model') + '</div>' +
-        (E.models.length > 12
+        (models.length > 12
           ? '<input class="m-search" id="mSearch" placeholder="' + t('searchModels') + '">'
           : '') +
-        '<div class="m-list">' + E.models.map(m =>
+        '<div class="m-list">' + models.map(m =>
           '<button class="m-item" data-m="' + m.id + '"><span class="ck">' +
           (m.id === st.model ? '✓' : '') + '</span>' + esc(m.l || t('default')) +
           (m.def ? '<span class="mdef">' + t('default') + '</span>' : '') + '</button>').join('') +
@@ -1619,6 +1700,114 @@
     else document.getElementById('upbadgeText').textContent = t('updateFailed');
   });
 
+  // ---------- окно «агенты и модели»: избранные модели каждого агента ----------
+  let mwSel = 'claude', mwProv = '', mwQ = '';
+
+  function openModelsWin() {
+    hidePopover();
+    mwProv = ''; mwQ = '';
+    Object.keys(AGENT_LABELS).forEach(id => {
+      if (avail[id] && !ENGINES[id].loaded) loadModels(id).then(mwDraw);
+    });
+    document.getElementById('modelsWin').classList.add('show');
+    mwDraw();
+  }
+
+  document.getElementById('modelsWin').addEventListener('click', ev => {
+    if (ev.target.id === 'modelsWin') ev.target.classList.remove('show');
+  });
+
+  function mwSave(eng, favs, def) {
+    modelPrefs[eng] = { favs, def };
+    api('models_set?agent=' + eng + '&favs=' + encodeURIComponent(favs.join(',')) +
+        '&def=' + encodeURIComponent(def || ''));
+    mwDraw();
+  }
+
+  function mwDraw() {
+    if (!document.getElementById('modelsWin').classList.contains('show')) return;
+    document.getElementById('mwHead').textContent = t('agentsModels');
+    const sel = enabledProviders || [];
+    document.getElementById('mwRail').innerHTML = Object.keys(AGENT_LABELS).map(id => {
+      const p = modelPrefs[id];
+      return '<button class="ob-row' + (id === mwSel ? ' sel' : '') + (avail[id] ? '' : ' off') +
+        '" data-a="' + id + '"><span class="ck">' + (sel.includes(id) ? '✓' : '') + '</span>' +
+        agentIcon(id) + '<span>' + AGENT_LABELS[id] + '</span>' +
+        '<span class="cnt">' + (p && p.favs && p.favs.length ? p.favs.length : '') + '</span></button>';
+    }).join('');
+    document.querySelectorAll('#mwRail .ob-row').forEach(b => {
+      b.onclick = () => { mwSel = b.dataset.a; mwProv = ''; mwQ = ''; mwDraw(); };
+      b.querySelector('.ck').onclick = async ev => {   // галочка = вкл/выкл агента
+        ev.stopPropagation();
+        const id = b.dataset.a;
+        if (!avail[id]) return;
+        const next = sel.includes(id) ? sel.filter(p => p !== id) : [...sel, id];
+        if (!next.length) return;
+        const r = await api('providers_set?list=' + encodeURIComponent(next.join(',')));
+        if (r) { enabledProviders = r.providers; mwDraw(); }
+      };
+    });
+
+    const E = ENGINES[mwSel];
+    const prefs = modelPrefs[mwSel] || { favs: [], def: '' };
+    const byId = {};
+    E.models.forEach(m => { byId[m.id] = m; });
+    const defId = prefs.def || prefs.favs[0] || '';
+    const favs = prefs.favs.map(id => {
+      const m = byId[id] || { l: id, prov: '' };
+      return '<div class="mw-fav"><span class="star" title="' + t('removeFav') + '" data-un="' + esc(id) + '">★</span>' +
+        '<span class="nm">' + esc(m.l || id) + '</span><span class="mw-id">' + esc(id) + '</span><span class="mw-sp"></span>' +
+        (m.prov ? '<span class="mw-prov">' + esc(m.prov) + '</span>' : '') +
+        '<span class="mw-def' + (id === defId ? '' : ' off') + '" data-def="' + esc(id) + '">' + t('default') + '</span>' +
+        '<span class="x" data-un="' + esc(id) + '">×</span></div>';
+    }).join('');
+    const provs = [...new Set(E.models.map(m => m.prov).filter(Boolean))];
+    const chips = provs.length > 1
+      ? '<div class="mw-chips"><button class="chip' + (mwProv ? '' : ' on') + '" data-pv="">' + t('all') + '</button>' +
+        provs.map(p => '<button class="chip' + (p === mwProv ? ' on' : '') + '" data-pv="' + esc(p) + '">' + esc(p) + '</button>').join('') + '</div>'
+      : '';
+    const pool = E.models.filter(m => !prefs.favs.includes(m.id))
+      .filter(m => !mwProv || m.prov === mwProv)
+      .filter(m => (m.l + ' ' + m.id).toLowerCase().includes(mwQ.toLowerCase()));
+    const capped = pool.length > 60;
+    const rows = pool.slice(0, 60).map(m =>
+      '<button class="mw-row" data-f="' + esc(m.id) + '"><span class="star">★</span>' +
+      '<span class="nm">' + esc(m.l) + '</span><span class="mw-id">' + esc(m.id) + '</span><span class="mw-sp"></span>' +
+      (m.prov ? '<span class="mw-prov">' + esc(m.prov) + '</span>' : '') + '</button>').join('');
+
+    document.getElementById('mwPane').innerHTML =
+      '<div class="m-label">' + t('favModels') + '</div>' +
+      (favs || '<div class="mw-hint">' + t('noFavs') + '</div>') +
+      (favs ? '<div class="mw-hint">' + t('favHint') + '</div>' : '') +
+      '<div class="mw-search-wrap">' +
+      '<div class="m-label" style="padding-top:8px">' + t('addCatalog') + '</div>' + chips +
+      '<input class="m-search" id="mwSearch" placeholder="' + t('searchCatalog') + '">' +
+      '<div class="mw-res">' + rows + '</div>' +
+      (capped ? '<div class="mw-note">' + t('refine') + '</div>' : '') +
+      '</div>';
+
+    const pane = document.getElementById('mwPane');
+    pane.querySelectorAll('[data-un]').forEach(el => el.onclick = () => {
+      const favsNext = prefs.favs.filter(id => id !== el.dataset.un);
+      mwSave(mwSel, favsNext, defId === el.dataset.un ? (favsNext[0] || '') : defId);
+    });
+    pane.querySelectorAll('[data-def]').forEach(el => el.onclick = () =>
+      mwSave(mwSel, prefs.favs, el.dataset.def));
+    pane.querySelectorAll('[data-pv]').forEach(el => el.onclick = () => {
+      mwProv = el.dataset.pv; mwDraw();
+      const s = document.getElementById('mwSearch'); s.value = mwQ; s.focus();
+    });
+    pane.querySelectorAll('[data-f]').forEach(el => el.onclick = () =>
+      mwSave(mwSel, [...prefs.favs, el.dataset.f], defId || el.dataset.f));
+    const ms = document.getElementById('mwSearch');
+    ms.value = mwQ;
+    ms.oninput = () => {
+      mwQ = ms.value; mwDraw();
+      const s = document.getElementById('mwSearch');
+      s.focus(); s.setSelectionRange(s.value.length, s.value.length);
+    };
+  }
+
   // ---------- онбординг: установка статус-хуков в конфиги CLI ----------
   document.getElementById('hooksFix').addEventListener('click', async () => {
     const r = await api('hooks_install') || {};
@@ -1644,6 +1833,7 @@
     avail.cursor = !!data.cursor;
     avail.opencode = !!data.opencode;
     enabledProviders = data.providers;
+    modelPrefs = data.models || {};
     if (data.providers === null) showOnboard();
     if (pageVer === null) pageVer = data.page;
     else document.getElementById('stale').hidden = (data.page === pageVer);
@@ -1740,11 +1930,10 @@
       '<button class="po-item po-flex" data-i="' + i + '">' +
       '<span class="po-check">' + (s.file === cur ? '✓' : '') + '</span>' +
       '<span class="t">' + esc(s.name) + '</span></button>').join('');
-    const sel = enabledProviders || [];
-    const provRows = Object.keys(AGENT_LABELS).map(id =>
-      '<button class="po-item po-flex' + (avail[id] ? '' : ' po-dim') + '" data-p="' + id + '">' +
-      '<span class="po-check">' + (sel.includes(id) ? '✓' : '') + '</span>' +
-      agentIcon(id) + '<span class="t">' + AGENT_LABELS[id] + '</span></button>').join('');
+    // агенты и их модели живут в отдельном окне — тут только вход в него
+    const provRows =
+      '<button class="po-item po-flex" data-mw="1">' +
+      '<span class="po-check"></span><span class="t">' + t('agentsModels') + '…</span></button>';
     // язык доски: те же строки-пункты с галочкой, что и у скинов; названия — эндонимы
     const langs = [{ code: 'en', name: 'English' }, { code: 'ru', name: 'Русский' }];
     const langRows = langs.map(l =>
@@ -1766,15 +1955,8 @@
         settingsMenu(x, y);   // перерисовать с галочкой
       };
     });
-    popover.querySelectorAll('.po-item[data-p]').forEach(btn => {
-      btn.onclick = async () => {
-        const id = btn.dataset.p;
-        if (!avail[id]) return;
-        const next = sel.includes(id) ? sel.filter(p => p !== id) : [...sel, id];
-        if (!next.length) return;   // хотя бы один агент должен остаться
-        const r = await api('providers_set?list=' + encodeURIComponent(next.join(',')));
-        if (r) { enabledProviders = r.providers; settingsMenu(x, y); }
-      };
+    popover.querySelectorAll('.po-item[data-mw]').forEach(btn => {
+      btn.onclick = () => openModelsWin();
     });
   }
 

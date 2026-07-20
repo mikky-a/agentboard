@@ -193,6 +193,21 @@ body::before {
 .ob-row .ck { color: #0071e3; }
 .ob-row .m { color: #86868b; }
 
+/* ---------- окно «агенты и модели» ---------- */
+.mw-rail, .mw-search-wrap { border-color: rgba(0, 0, 0, 0.08); }
+.mw-rail .ob-row.sel { background: rgba(0, 0, 0, 0.06); outline-color: rgba(0, 0, 0, 0.12); }
+.mw-fav:hover, .mw-row:hover { background: rgba(0, 0, 0, 0.06); }
+.mw-fav .nm, .mw-row .nm { color: #1d1d1f; }
+.mw-id, .mw-hint, .mw-rail .cnt { color: #86868b; }
+.mw-note { color: #a1a1a6; }
+.mw-prov { color: #0071e3; background: rgba(0, 113, 227, 0.08); border-color: rgba(0, 113, 227, 0.25); }
+.mw-def { color: #1d7a3e; background: rgba(52, 199, 89, 0.12); border-color: rgba(52, 199, 89, 0.35); }
+.mw-def.off { color: #86868b; background: transparent; border-color: rgba(0, 0, 0, 0.15); }
+.mw-row .star { color: rgba(0, 0, 0, 0.2); }
+.mw-fav .x { color: #a1a1a6; }
+.mw-fav .x:hover { color: #ff3b30; }
+.m-search { border-bottom-color: rgba(0, 0, 0, 0.15); color: #1d1d1f; }
+
 /* ---------- попап: меню macOS ---------- */
 #popover {
   background: rgba(250, 250, 252, 0.82);
