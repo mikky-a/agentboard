@@ -1414,13 +1414,20 @@ def get_agents():
         pids = pane_pids(a["name"])
         rec = next((r for r in recs
                     if str(r.get("pid")) in pids and r.get("sessionId")), None)
-        sid = rec["sessionId"] if rec else ""
-        if not sid and not card["id"]:
-            # запасной вариант; чужие разговоры (карточек и недавно закрытые)
-            # не подцепляем — иначе новая плитка мигает чужим превью
-            known = ({c["id"] for c in cards_list if c.get("id")} |
-                     {c["id"] for c in board["closed"] if c.get("id")})
-            sid, _ = newest_session(a["path"], a["created"], known)
+        sid = rec["sessionId"] if rec else card["id"]
+        # компакшн/суммаризация форкают разговор в НОВЫЙ файл на ходу, а pid->session
+        # у claude при этом не обновляется — карточка застывала на старом. Следуем за
+        # более свежим разговором той же папки (не заглатывая сессии других живых
+        # карточек и недавно закрытые). Активную сессию это не трогает: её файл и есть
+        # самый свежий, так что подхватывается только осиротевший после форка.
+        known = ({c["id"] for c in cards_list if c is not card and c.get("id")} |
+                 {c["id"] for c in board["closed"] if c.get("id")})
+        cand, _ = newest_session(a["path"], a["created"], known)
+        if cand and cand != sid:
+            cur_f = find_session_file(a["path"], sid) if sid else ""
+            cur_m = os.path.getmtime(cur_f) if cur_f and os.path.isfile(cur_f) else 0
+            if os.path.getmtime(find_session_file(a["path"], cand)) > cur_m:
+                sid = cand
         if sid and sid != card["id"]:
             card["id"] = sid
             _, card["title"] = cached_meta(find_session_file(card["cwd"], sid))
