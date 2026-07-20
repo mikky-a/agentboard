@@ -1473,6 +1473,56 @@ def get_agents():
 
 # ---------- действия ----------
 
+# ---------- доверие к папке: гасим стартовый диалог «trust this directory?» ----------
+# Без этого агент в незнакомой папке молча стоит на диалоге, а карточка
+# выглядит «запускается». Создание агента с доски — и есть согласие юзера.
+# Хранилища: claude — ~/.claude.json projects[cwd].hasTrustDialogAccepted;
+# codex — [projects."cwd"] в config.toml; cursor — ~/.cursor/projects/<слаг>/
+# .workspace-trusted (слаг = путь, не-алфанум → дефисы; cursor сверяет
+# workspacePath, так что промах слага просто вернёт диалог, не сломает).
+
+CLAUDE_JSON = os.path.expanduser("~/.claude.json")
+CODEX_CONFIG = os.path.expanduser("~/.codex/config.toml")
+CURSOR_PROJECTS = os.path.expanduser("~/.cursor/projects")
+
+
+def pre_trust(agent, cwd):
+    try:
+        if agent == "claude":
+            cfg, ok = _read_json(CLAUDE_JSON)
+            if not ok or not cfg:  # нет файла — claude ещё не запускали, не лезем
+                return
+            proj = cfg.setdefault("projects", {}).setdefault(cwd, {})
+            if not proj.get("hasTrustDialogAccepted"):
+                proj["hasTrustDialogAccepted"] = True
+                tmp = CLAUDE_JSON + ".agentboard-tmp"
+                with open(tmp, "w") as f:
+                    json.dump(cfg, f, ensure_ascii=False, indent=2)
+                os.replace(tmp, CLAUDE_JSON)
+        elif agent == "codex":
+            mark = f'[projects."{cwd}"]'
+            try:
+                with open(CODEX_CONFIG) as f:
+                    txt = f.read()
+            except OSError:
+                txt = ""
+            if mark not in txt:
+                os.makedirs(os.path.dirname(CODEX_CONFIG), exist_ok=True)
+                with open(CODEX_CONFIG, "a") as f:
+                    f.write(f'\n{mark}\ntrust_level = "trusted"\n')
+        elif agent == "cursor":
+            slug = re.sub(r"-+", "-", re.sub(r"[^A-Za-z0-9]", "-", cwd)).strip("-")
+            p = os.path.join(CURSOR_PROJECTS, slug, ".workspace-trusted")
+            if not os.path.exists(p):
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "w") as f:
+                    json.dump({"trustedAt":
+                               datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+                               "workspacePath": cwd}, f, indent=2)
+    except Exception:
+        pass  # не вышло — агент просто спросит сам, как раньше
+
+
 def free_name(base):
     name, i = base, 2
     while tmux_ok("has-session", "-t", name):
@@ -1620,6 +1670,7 @@ def new_agent(cwd, project, prompt="", agent="claude", model="", effort=""):
     Плитка появится на доске; откроешь, когда замигает."""
     name = free_name(project or os.path.basename(cwd.rstrip("/")))
     os.makedirs(NAMES_DIR, exist_ok=True)
+    pre_trust(agent, cwd)
     if agent == "codex":
         parts = [CODEX]
         if model:

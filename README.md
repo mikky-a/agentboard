@@ -41,8 +41,9 @@ for every CLI you have installed (backing up your originals as
 ignores hook permission responses), and an opencode plugin in
 `~/.config/opencode/plugins/`. Restart any live agent sessions after
 installing; Codex will ask to trust the new hooks — choose "Trust all and
-continue". Cursor shows a one-time Workspace Trust prompt the first time it
-runs in a new folder.
+continue". When you create an agent from the board, the folder is pre-trusted
+in the CLI's own config (Claude / Codex / Cursor), so agents don't silently
+stall on first-run "do you trust this directory?" dialogs.
 
 ## Statuses
 

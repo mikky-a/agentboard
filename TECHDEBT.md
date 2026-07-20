@@ -17,8 +17,10 @@
 - opencode с дефолтными правами почти не спрашивает разрешений — plugin ловит
   permission.asked, но в тесте событие не стрельнуло ни разу. Проверить на
   строгом konfigе (permission.bash = "ask").
-- Первый запуск Cursor в новой папке — диалог Workspace Trust в карточке,
-  одно нажатие «a». Trust запоминается per-папка.
+- Стартовые trust-диалоги (claude/codex/cursor) гасятся заранее: pre_trust()
+  в new_agent пишет доверие в родные хранилища CLI. Форматы недокументированы
+  (cursor: `.workspace-trusted` в `~/.cursor/projects/<слаг>/`) — при апдейтах
+  CLI может отвалиться; деградация мягкая: агент снова спросит сам в карточке.
 
 ## «API Error: Stream idle timeout - no chunks received» (2026-07-19)
 
