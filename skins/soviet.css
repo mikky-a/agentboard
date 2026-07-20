@@ -264,6 +264,30 @@ body::before {
 .acard-actions .primary:hover { background: linear-gradient(180deg, #93d69c 0%, #64ac74 48%, #468453 100%); }
 .acard-actions .primary:active { transform: translateY(2px); box-shadow: 0 0 0 #14301c, inset 0 2px 4px #0006; }
 
+/* ---------- онбординг: приёмный бланк ---------- */
+#onboard { background: #14100cc4; }
+.ob-card {
+  background: #e9e2c9;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 15px, #00000008 15px 16px),
+    radial-gradient(ellipse at 60% 20%, #fff5 0, transparent 60%);
+  border: 1px solid #948a6f;
+  border-radius: 3px;
+  box-shadow: 0 14px 36px #000c, inset 0 0 22px #6b551f14;
+  color: #2e2b20;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.ob-head {
+  color: #4a3f22; font-weight: 800; letter-spacing: .14em; text-align: center;
+}
+.ob-head::before { content: "★ "; color: #b3362a; }
+.ob-head::after { content: " ★"; color: #b3362a; }
+.ob-sub, .ob-foot .m { color: #7a6f50; }
+.ob-row { color: #2e2b20; }
+.ob-row:hover { background: #d9d0b0; }
+.ob-row .ck { color: #2e6b3a; }
+.ob-row .m { color: #7a6f50; }
+
 /* ---------- попап: служебный бланк, бумага АЦПУ ---------- */
 #popover {
   background: #e9e2c9;

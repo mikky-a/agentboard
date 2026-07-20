@@ -543,16 +543,27 @@ def _install_md(path):
         f.write(txt)
 
 
-def install_hooks():
-    # async: хук-маячок не должен задерживать Claude; Codex поле не знает — без него
-    _install_into(CLAUDE_SETTINGS, extra={"async": True})
-    _install_into(CODEX_HOOKS_FILE)
-    _install_md(CLAUDE_MD)
-    _install_md(CODEX_MD)
-    # cursor/opencode — только установленным CLI, чтобы не мусорить в чужих конфигах
-    if os.path.exists(CURSOR):
+AGENT_BINS = {"claude": CLAUDE, "codex": CODEX, "cursor": CURSOR, "opencode": OPENCODE}
+
+
+def detected_agents():
+    return [a for a, b in AGENT_BINS.items() if os.path.exists(b)]
+
+
+def install_hooks(selected=None):
+    """Хуки и память — только выбранным провайдерам (по умолчанию всем найденным)."""
+    sel = set(selected if selected is not None else detected_agents())
+    sel &= set(detected_agents())  # не мусорим в конфигах неустановленных CLI
+    if "claude" in sel:
+        # async: хук-маячок не должен задерживать Claude
+        _install_into(CLAUDE_SETTINGS, extra={"async": True})
+        _install_md(CLAUDE_MD)
+    if "codex" in sel:  # Codex поле async не знает — без него
+        _install_into(CODEX_HOOKS_FILE)
+        _install_md(CODEX_MD)
+    if "cursor" in sel:
         _install_cursor()
-    if os.path.exists(OPENCODE):
+    if "opencode" in sel:
         _install_opencode()
         _install_md(OPENCODE_MD)
     return hooks_state()
@@ -585,6 +596,7 @@ def load_board():
     data.setdefault("hidden", [])
     data.setdefault("labels", {})  # id разговора -> имя; живёт дольше карточки
     data.setdefault("closed", [])  # недавно убранные с доски — можно вернуть
+    data.setdefault("providers", None)  # None = онбординг ещё не пройден
     return data
 
 
@@ -1301,6 +1313,11 @@ def get_agents():
     cards_list = board["cards"]
     changed = False
 
+    # доска, жившая до онбординга, — считаем, что выбраны все найденные CLI
+    if board["providers"] is None and (cards_list or board["workspaces"]):
+        board["providers"] = detected_agents()
+        changed = True
+
     # дедупликация: один разговор — одна карточка
     seen = set()
     for card in list(cards_list):
@@ -1465,9 +1482,11 @@ def get_agents():
     return {"workspaces": [dict(w, logo=logo_version(w["cwd"]))
                            for w in board["workspaces"]],
             "agents": agents, "page": page,
+            "claude": os.path.exists(CLAUDE),
             "codex": os.path.exists(CODEX),
             "cursor": os.path.exists(CURSOR),
             "opencode": os.path.exists(OPENCODE),
+            "providers": board["providers"],
             "hooks": hooks_state()}
 
 
@@ -1878,7 +1897,17 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/label":
             self.ok(set_label(arg("tmux"), arg("id"), arg("label")))
         elif url.path == "/api/hooks_install":
-            self.send(200, json.dumps(install_hooks()))
+            with BOARD_LOCK:
+                sel = load_board()["providers"]
+            self.send(200, json.dumps(install_hooks(sel)))
+        elif url.path == "/api/providers_set":
+            sel = [p for p in arg("list").split(",") if p in AGENT_BINS]
+            with BOARD_LOCK:
+                board = load_board()
+                board["providers"] = sel
+                save_board(board)
+            self.send(200, json.dumps(
+                {"providers": sel, "hooks": install_hooks(sel)}))
         elif url.path == "/api/dirs":
             self.send(200, json.dumps(list_dirs()))
         elif url.path == "/api/skins":

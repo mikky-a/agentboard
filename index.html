@@ -416,6 +416,38 @@
   #popover .po-sub .po-empty { padding: 8px 12px; font-size: 12px; }
   @keyframes subIn { from { opacity: 0; transform: translateY(-3px); } }
 
+  /* ---------- онбординг: какие агенты подключить ---------- */
+  #onboard {
+    position: fixed; inset: 0; z-index: 80;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(4,8,6,0.72);
+  }
+  #onboard.show { display: flex; }
+  .ob-card {
+    width: 420px; max-width: calc(100vw - 40px);
+    background: #101713; border: 1px solid #35473c; border-radius: 12px;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+    animation: growIn 0.18s ease; transform-origin: center;
+  }
+  .ob-head { padding: 16px 18px 4px; font-weight: 700; font-size: 15px; color: #d9e5dd; }
+  .ob-sub { padding: 0 18px 12px; color: #8fa398; font-size: 12px; line-height: 1.5; }
+  .ob-row {
+    display: flex; align-items: center; gap: 10px;
+    width: calc(100% - 20px); margin: 0 10px; padding: 10px 8px;
+    border: 0; background: transparent; color: #c7d4cc;
+    font: inherit; text-align: left; border-radius: 8px; cursor: pointer;
+  }
+  .ob-row:hover { background: #1c2a22; }
+  .ob-row.off { opacity: 0.5; cursor: default; }
+  .ob-row.off:hover { background: transparent; }
+  .ob-row .ck { width: 15px; flex: none; color: #37d67a; font-weight: 700; }
+  .ob-row .agent-logo { width: 17px; height: 17px; }
+  .ob-row .m { margin-left: auto; color: #5f7a6b; font-size: 11px; }
+  .ob-foot { display: flex; align-items: center; padding: 14px 18px 16px; }
+  .ob-foot .m { color: #5f7a6b; font-size: 11px; }
+  .ob-foot .top-btn { margin-left: auto; }
+  @media (prefers-reduced-motion: reduce) { .ob-card { animation: none; } }
+
   /* ---------- композер нового агента ---------- */
   .composer {
     margin: 10px 12px 12px;
@@ -508,6 +540,8 @@
   .m-lvl.sel { background: #205c3b; border-color: #2e7a52; color: #eafff2; }
   #popover .po-flex { display: flex; align-items: center; gap: 8px; }
   #popover .po-flex .t { flex: 1; }
+  #popover .po-dim { opacity: 0.45; cursor: default; }
+  #popover .po-dim:hover { background: transparent; }
   /* лого проекта в списках выбора; .po-folder — заглушка, если лого нет */
   #popover .po-logo {
     flex: none; width: 18px; height: 18px; border-radius: 4px;
@@ -583,6 +617,12 @@
 
   <div id="canvas"></div>
   <div id="popover"></div>
+  <div id="onboard"><div class="ob-card">
+    <div class="ob-head">Welcome to Agent Board</div>
+    <div class="ob-sub">Which agents should the board manage? Installed CLIs are pre-selected — you can change this later in settings.</div>
+    <div id="obRows"></div>
+    <div class="ob-foot"><span class="m" id="obHint"></span><button class="top-btn" id="obGo">Connect</button></div>
+  </div></div>
 
   <div id="empty">
     <div>
@@ -1087,8 +1127,7 @@
   };
 
   function engineAvailable(id) {
-    return { claude: true, codex: codexAvailable,
-             cursor: cursorAvailable, opencode: opencodeAvailable }[id] || false;
+    return !!avail[id] && (!enabledProviders || enabledProviders.includes(id));
   }
 
   const LAST_MODEL_KEY = 'agentboard-last-model';
@@ -1302,7 +1341,8 @@
 
   // ---------- опрос ----------
   let pageVer = null;
-  let codexAvailable = false, cursorAvailable = false, opencodeAvailable = false;
+  const avail = { claude: true, codex: false, cursor: false, opencode: false };
+  let enabledProviders = null;   // null = онбординг ещё не пройден
 
   // ---------- звук «жду тебя»: короткий динь при появлении жёлтого статуса ----------
   let audioCtx;
@@ -1331,12 +1371,56 @@
     } catch (e) {}
   }, { once: true });
 
+  // ---------- онбординг: какие агенты подключить (первый запуск и настройки) ----------
+  const PROVIDER_HINTS = {
+    claude: 'claude.com/claude-code', codex: 'github.com/openai/codex',
+    cursor: 'cursor.com/cli', opencode: 'opencode.ai',
+  };
+  let obPicked = null;
+
+  function renderOnboard() {
+    document.getElementById('obRows').innerHTML = Object.keys(AGENT_LABELS).map(id => {
+      const ok = !!avail[id];
+      return '<button class="ob-row' + (ok ? '' : ' off') + '" data-p="' + id + '">' +
+        '<span class="ck">' + (ok && obPicked.has(id) ? '✓' : '') + '</span>' +
+        agentIcon(id) + '<span>' + AGENT_LABELS[id] + '</span>' +
+        '<span class="m">' + (ok ? '' : 'not found — ' + PROVIDER_HINTS[id]) + '</span>' +
+        '</button>';
+    }).join('');
+    document.querySelectorAll('#obRows .ob-row').forEach(b => {
+      b.onclick = () => {
+        const id = b.dataset.p;
+        if (!avail[id]) return;
+        obPicked.has(id) ? obPicked.delete(id) : obPicked.add(id);
+        renderOnboard();
+      };
+    });
+    document.getElementById('obGo').disabled = !obPicked.size;
+    document.getElementById('obHint').textContent =
+      obPicked.size ? '' : 'pick at least one';
+  }
+
+  function showOnboard() {
+    if (obPicked) return;
+    obPicked = new Set(Object.keys(AGENT_LABELS).filter(id => avail[id]));
+    renderOnboard();
+    document.getElementById('onboard').classList.add('show');
+  }
+
+  document.getElementById('obGo').addEventListener('click', async () => {
+    const r = await api('providers_set?list=' + encodeURIComponent([...obPicked].join(',')));
+    if (r) {
+      enabledProviders = r.providers;
+      document.getElementById('onboard').classList.remove('show');
+    }
+  });
+
   // ---------- онбординг: установка статус-хуков в конфиги CLI ----------
   document.getElementById('hooksFix').addEventListener('click', async () => {
     const r = await api('hooks_install') || {};
     const bar = document.getElementById('hooksbar');
-    if (r.claude && (!codexAvailable || r.codex) && (!cursorAvailable || r.cursor) &&
-        (!opencodeAvailable || r.opencode)) {
+    const need = enabledProviders || Object.keys(avail).filter(id => avail[id]);
+    if (need.every(p => r[p])) {
       bar.dataset.done = '1';
       document.getElementById('hooksbarText').textContent =
         'готово — перезапусти сессии агентов';
@@ -1353,9 +1437,12 @@
     if (!data) return;
     lastAgents = data.agents;
     projects = data.workspaces;
-    codexAvailable = !!data.codex;
-    cursorAvailable = !!data.cursor;
-    opencodeAvailable = !!data.opencode;
+    avail.claude = data.claude !== false;
+    avail.codex = !!data.codex;
+    avail.cursor = !!data.cursor;
+    avail.opencode = !!data.opencode;
+    enabledProviders = data.providers;
+    if (data.providers === null) showOnboard();
     if (pageVer === null) pageVer = data.page;
     else document.getElementById('stale').hidden = (data.page === pageVer);
 
@@ -1392,8 +1479,8 @@
     const bar = document.getElementById('hooksbar');
     if (!bar.dataset.done) {
       const hk = data.hooks || {};
-      bar.hidden = !(!hk.claude || (codexAvailable && !hk.codex) ||
-                     (cursorAvailable && !hk.cursor) || (opencodeAvailable && !hk.opencode));
+      const sel = enabledProviders || [];
+      bar.hidden = !sel.some(p => avail[p] && !hk[p]);
     }
 
     // фильтр по папкам: чипы в баре, скрываем чужие карточки
@@ -1442,11 +1529,27 @@
       '<button class="po-item po-flex" data-i="' + i + '">' +
       '<span class="po-check">' + (s.file === cur ? '✓' : '') + '</span>' +
       '<span class="t">' + esc(s.name) + '</span></button>').join('');
-    showPopover(x, y, '<div class="po-head">скин доски</div>' + rows);
-    popover.querySelectorAll('.po-item').forEach(btn => {
+    const sel = enabledProviders || [];
+    const provRows = Object.keys(AGENT_LABELS).map(id =>
+      '<button class="po-item po-flex' + (avail[id] ? '' : ' po-dim') + '" data-p="' + id + '">' +
+      '<span class="po-check">' + (sel.includes(id) ? '✓' : '') + '</span>' +
+      agentIcon(id) + '<span class="t">' + AGENT_LABELS[id] + '</span></button>').join('');
+    showPopover(x, y, '<div class="po-head">скин доски</div>' + rows +
+                      '<div class="po-head">агенты</div>' + provRows);
+    popover.querySelectorAll('.po-item[data-i]').forEach(btn => {
       btn.onclick = () => {
         applySkin(all[+btn.dataset.i].file);
         settingsMenu(x, y);   // перерисовать с галочкой
+      };
+    });
+    popover.querySelectorAll('.po-item[data-p]').forEach(btn => {
+      btn.onclick = async () => {
+        const id = btn.dataset.p;
+        if (!avail[id]) return;
+        const next = sel.includes(id) ? sel.filter(p => p !== id) : [...sel, id];
+        if (!next.length) return;   // хотя бы один агент должен остаться
+        const r = await api('providers_set?list=' + encodeURIComponent(next.join(',')));
+        if (r) { enabledProviders = r.providers; settingsMenu(x, y); }
       };
     });
   }
