@@ -31,13 +31,20 @@ The UI speaks English and Russian (auto-detected, switchable in settings).
 curl -fsSL https://raw.githubusercontent.com/mikky-a/agentboard/main/install.sh | sh
 ```
 
-This clones the repo into `~/.agentboard`, sets up start-on-login (launchd)
-and opens the board. Prefer to run it by hand? Then:
+This clones the repo into `~/.agentboard`, sets up start-on-login (launchd),
+builds **AgentBoard.app** (native window, dock icon with a badge showing how
+many agents are waiting for you) into `~/Applications` and opens it. Drag it
+to the Dock — that's the intended way to live with the board.
+
+No Xcode Command Line Tools (`swiftc`)? The script falls back to the browser
+at `http://localhost:8787` — the whole UI works there too. Prefer to run
+things by hand?
 
 ```bash
 git clone https://github.com/mikky-a/agentboard.git
 cd agentboard
-python3 agentboard.py        # → http://localhost:8787
+python3 agentboard.py        # server → http://localhost:8787
+./build_app.sh               # native app (optional)
 ```
 
 Open the board in a browser. If status hooks are not installed yet, a banner
@@ -60,13 +67,11 @@ Statuses come from the CLIs' own lifecycle hooks (e.g. the `PermissionRequest`
 event) writing to `~/.claude/agent-status/<tmux-session>` — no fragile parsing
 of terminal output.
 
-## Native app (optional)
+## Native app
 
-```bash
-./build_app.sh   # swiftc + icon → AgentBoard.app, drag it to /Applications
-```
-
-A dock icon with a badge showing how many agents are waiting for you.
+`install.sh` builds it automatically; to rebuild by hand: `./build_app.sh`
+(swiftc + icon → AgentBoard.app). The dock badge shows how many agents are
+waiting for you — the board lives in the Dock, not in a browser tab.
 
 ## Updates
 

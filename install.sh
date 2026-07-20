@@ -43,8 +43,20 @@ EOF
 
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"
-
 sleep 1
-echo "Agent Board is running → http://localhost:8787"
-echo "Optional native app: cd $DIR && ./build_app.sh"
-open "http://localhost:8787" 2>/dev/null || true
+
+# Главный сценарий — нативное окно с бейджем в доке; браузер — запасной путь.
+if command -v swiftc >/dev/null; then
+  echo "Building AgentBoard.app ..."
+  (cd "$DIR" && ./build_app.sh > /dev/null)
+  rm -rf "$HOME/Applications/AgentBoard.app"
+  mkdir -p "$HOME/Applications"
+  cp -R "$DIR/AgentBoard.app" "$HOME/Applications/AgentBoard.app"
+  echo "Agent Board installed → ~/Applications/AgentBoard.app (drag to the Dock!)"
+  open "$HOME/Applications/AgentBoard.app"
+else
+  echo "! swiftc not found — skipping the native app (install Xcode Command"
+  echo "  Line Tools: xcode-select --install, then re-run this script)."
+  echo "Agent Board is running → http://localhost:8787"
+  open "http://localhost:8787" 2>/dev/null || true
+fi
