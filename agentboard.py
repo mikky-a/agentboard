@@ -28,7 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 __version__ = "0.2.0"
 
-PORT = 8787
+PORT = int(os.environ.get("AGENTBOARD_PORT", "8787"))
 TMUX = shutil.which("tmux") or "/opt/homebrew/bin/tmux"
 # панели tmux наследуют env сервера, а не шелла — задаём PATH явно,
 # иначе внутри агентов не находится `claude` и падает его автообновление
