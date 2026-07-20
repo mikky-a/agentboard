@@ -120,12 +120,9 @@
     mask-image: url('/assets/agent-opencode.svg');
   }
   .hint { margin-left: auto; color: #5f7a6b; font-size: 12px; }
-  /* версия доски — тихий бейдж в углу, ведёт на релизы */
-  #verBadge {
-    position: fixed; right: 12px; bottom: 8px; z-index: 5;
-    color: #5f7a6b; font-size: 11px; text-decoration: none; opacity: 0.7;
-  }
-  #verBadge:hover { opacity: 1; text-decoration: underline; }
+  /* версия доски в топбаре — живая, с сервера; ведёт на релизы */
+  .ver { text-decoration: none; opacity: 0.85; }
+  .ver:hover { opacity: 1; text-decoration: underline; }
 
   #canvas { position: relative; min-width: 100vw; min-height: 100vh; }
 
@@ -675,7 +672,8 @@
     <button class="top-btn ghost icon-btn" id="topSettings" title="settings">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33 1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
-    <span class="ver">0.30</span>
+    <a class="ver" id="verBadge" href="https://github.com/mikky-a/agentboard/releases"
+       target="_blank" rel="noopener" title="releases"></a>
   </div>
 
   <div id="canvas"></div>

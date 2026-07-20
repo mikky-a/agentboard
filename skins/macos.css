@@ -170,7 +170,7 @@ body::before {
 }
 .acard-actions .primary:hover { background: #0071e3; color: #fff; }
 
-#verBadge { color: #86868b; }
+.ver { color: #86868b; }
 
 /* ---------- онбординг: системный лист ---------- */
 #onboard {
