@@ -1,0 +1,410 @@
+/* name: СССР */
+/*
+  Скин «СССР» для Agent Board.
+  Родной брат НЕЙРО-СТАНЦИИ «МНИСТ-1» (airev/nielsen/mnist.html):
+  стальной корпус, зелёная эмаль с винтами, костяные шильдики,
+  фосфорные ЭЛТ-экраны, кумачовые штампы, бумага АЦПУ.
+  Только системные шрифты, никаких внешних ресурсов.
+*/
+
+/* ---------- корпус: сталь с рёбрами ---------- */
+body {
+  background: #2b302f;
+  color: #e7e2d1;
+  font-family: "Helvetica Neue", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+}
+body::before {
+  background:
+    repeating-linear-gradient(90deg, #ffffff05 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, #00000008 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 20% 0%, #3a413f 0%, #24292788 55%, transparent 100%),
+    radial-gradient(ellipse at 80% 100%, #00000055, transparent 60%),
+    linear-gradient(180deg, #2f3533, #202423);
+}
+
+/* ---------- верх: заводская табличка ---------- */
+.topbar {
+  background:
+    radial-gradient(circle at 13px 50%, #dfe3dd 1.2px, #4d5450 2px, #20242388 2.8px, transparent 3.6px),
+    radial-gradient(circle at calc(100% - 13px) 50%, #dfe3dd 1.2px, #4d5450 2px, #20242388 2.8px, transparent 3.6px),
+    repeating-linear-gradient(90deg, #ffffff06 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at 75% 0%, #ffffff0d, transparent 55%),
+    linear-gradient(180deg, #3a4340, #252b28 55%, #2f3532);
+  backdrop-filter: none;
+  border-bottom: 1px solid #14181660;
+  box-shadow: inset 0 1px 0 #ffffff1c, inset 0 -2px 6px #0008, 0 3px 10px #0008;
+  color: #98a09a;
+}
+/* предупредительная лента по нижней кромке пульта */
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -5px;
+  height: 5px;
+  background: repeating-linear-gradient(-45deg, #c8a01f 0 12px, #1c1b16 12px 24px);
+  box-shadow: inset 0 1px 0 #ffffff22, 0 1px 3px #0008;
+  opacity: .8;
+  pointer-events: none;
+}
+.topbar b {
+  color: #c3c9c1;
+  text-transform: uppercase;
+  letter-spacing: .18em;
+  font-family: "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  font-weight: 900;
+  text-shadow: 0 1px 0 #ffffff2c, 0 2px 2px #0009, 0 -1px 1px #000a;
+}
+.topbar b::before { content: "★ "; color: #b3362a; text-shadow: 0 0 6px #b3362a55; }
+.topbar b::after { content: " ★"; color: #b3362a; text-shadow: 0 0 6px #b3362a55; }
+.counts { color: #95917c; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; letter-spacing: .04em; }
+.counts .w { color: #5be070; text-shadow: 0 0 6px #5be07066; }
+.counts .q { color: #ffb524; text-shadow: 0 0 6px #ffb52455; }
+
+/* ---------- кнопки: эмалевые клавиши с гравировкой ---------- */
+.top-btn {
+  color: #12210f;
+  text-shadow: 0 1px 0 #ffffff52;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 800;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #86c98f 0%, #5aa06a 48%, #3f7a4c 100%);
+  border: 1px solid #16281a;
+  box-shadow: 0 2px 0 #14301c, 0 3px 4px #0008, inset 0 1px 0 #ffffff5c, inset 0 -2px 3px #0005;
+}
+.top-btn:hover { background: linear-gradient(180deg, #93d69c 0%, #64ac74 48%, #468453 100%); }
+.top-btn:active { transform: translateY(2px); box-shadow: 0 0 0 #14301c, inset 0 2px 4px #0006; }
+.top-btn.ghost {
+  color: #12210f;
+  font-weight: 700;
+  background: linear-gradient(180deg, #cfd3cd, #9aa19b);
+  border-color: #5c625f;
+  box-shadow: inset 0 1px 0 #ffffffaa, 0 2px 0 #565b56, 0 3px 5px #0006;
+}
+.top-btn.ghost:hover { color: #12210f; background: linear-gradient(180deg, #dbdfd9, #a7aea8); }
+.top-btn.ghost:active { transform: translateY(2px); box-shadow: inset 0 1px 0 #ffffffaa, 0 0 0 #565b56; }
+.icon-btn { border-radius: 50%; }
+
+/* ---------- плашка онбординга хуков: предупредительное табло с лампой ---------- */
+.hooksbar {
+  color: #ffb524;
+  background: linear-gradient(180deg, #2c2412, #1c170b);
+  border: 1px solid #6b5a1e;
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 #ffffff14, inset 0 0 8px #0007;
+  text-shadow: 0 0 6px #ffb52455;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  font-size: 11px;
+}
+.hooksbar .wdot {
+  background: radial-gradient(circle at 35% 30%, #ffe2a0, #ffb524 55%, #8a6112);
+  border: 1px solid #00000070;
+  box-shadow: inset 0 0 2px #0006, 0 0 9px #ffb524aa;
+}
+.skin-sel {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: linear-gradient(180deg, #1a201b, #0f130f);
+  color: #c9c1a4;
+  border: 1px solid #000;
+  border-radius: 4px;
+  box-shadow: inset 0 1px 3px #000, 0 1px 0 #ffffff10;
+}
+#stale {
+  color: #ffb524 !important;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  text-shadow: 0 0 8px #ffb52466;
+  animation: sovblink .8s steps(2) infinite;
+}
+@keyframes sovblink { 50% { opacity: .35; } }
+
+/* ---------- карточка: приборная панель, зелёная эмаль с винтами ---------- */
+.acard {
+  background: #37453a;
+  background-image:
+    radial-gradient(circle at 10px 10px, #0008 1.6px, transparent 2.5px),
+    radial-gradient(circle at calc(100% - 10px) 10px, #0008 1.6px, transparent 2.5px),
+    radial-gradient(circle at 10px calc(100% - 10px), #0008 1.6px, transparent 2.5px),
+    radial-gradient(circle at calc(100% - 10px) calc(100% - 10px), #0008 1.6px, transparent 2.5px),
+    radial-gradient(circle at 10px 10px, #8a642a3a 3px, transparent 6px),
+    radial-gradient(circle at calc(100% - 10px) calc(100% - 10px), #8a642a30 3px, transparent 6px),
+    repeating-linear-gradient(24deg, #ffffff06 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(-13deg, #00000010 0 1px, transparent 1px 11px),
+    radial-gradient(ellipse at 79% 20%, #0000002e, transparent 32%),
+    radial-gradient(ellipse at 18% 84%, #00000026, transparent 36%),
+    linear-gradient(180deg, #ffffff0b, transparent 24%);
+  border: 1px solid #1c241e;
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 #ffffff12, inset 0 -5px 12px #0006, inset 0 0 30px #0003, 0 4px 12px #0008;
+  color: #d8d1ba;
+}
+.acard.dragging {
+  box-shadow: inset 0 1px 0 #ffffff12, inset 0 -5px 12px #0006, 0 18px 40px #000d;
+}
+.acard.waiting {
+  border-color: #b3a06a;
+  animation: sovglow 1.6s ease-in-out infinite;
+}
+@keyframes glow {
+  0%, 100% { box-shadow: inset 0 1px 0 #ffffff12, inset 0 -5px 12px #0006, 0 4px 12px #0008, 0 0 8px #ffb52422; }
+  50% { box-shadow: inset 0 1px 0 #ffffff12, inset 0 -5px 12px #0006, 0 4px 12px #0008, 0 0 24px #ffb52466; }
+}
+@keyframes sovglow {
+  0%, 100% { box-shadow: inset 0 1px 0 #ffffff12, inset 0 -5px 12px #0006, 0 4px 12px #0008, 0 0 8px #ffb52422; }
+  50% { box-shadow: inset 0 1px 0 #ffffff12, inset 0 -5px 12px #0006, 0 4px 12px #0008, 0 0 24px #ffb52466; }
+}
+.acard.parked { border-style: dashed; border-color: #948a6f; }
+.acard.parked .acard-body { color: #a69d82; font-style: italic; }
+
+/* ---------- шапка карточки: костяной шильдик ---------- */
+.acard-head {
+  background: #c9c1a4;
+  background-image:
+    radial-gradient(ellipse at 28% 40%, #00000012, transparent 55%),
+    radial-gradient(circle at 82% 72%, #6b551f26, transparent 42%),
+    linear-gradient(180deg, #ffffff28, transparent 45%, #00000014);
+  border-bottom: 1px solid #948a6f;
+  box-shadow: inset 0 1px 0 #ffffff40, inset 0 -1px 0 #0004;
+}
+.hlogo {
+  border-radius: 3px;
+  border: 1px solid #948a6f;
+  box-shadow: 0 1px 2px #00000055;
+  filter: sepia(.25) saturate(.85);
+}
+.ntext {
+  color: #34332a;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  text-shadow: 0 1px 0 #ffffff38;
+}
+.ntext[contenteditable="plaintext-only"] {
+  outline: 1px solid #8a642a;
+  background: #d8d1ba;
+  border-radius: 2px;
+}
+.proj { color: #6b6248; letter-spacing: .1em; }
+.xbtn { color: #6b6248; border-radius: 50%; }
+.xbtn:hover { background: #b3362a; color: #f2e6d0; }
+
+/* ---------- статус: сигнальные лампы ---------- */
+.st {
+  border: 2px solid #00000070;
+  box-shadow: inset 0 0 3px #000;
+  background: #3a2a12;
+}
+.st.working {
+  background: radial-gradient(circle at 35% 30%, #b5f0be, #5be070 55%, #2c6e3a);
+  box-shadow: inset 0 0 2px #0006, 0 0 9px #5be070;
+  animation: sovlamp 1.4s steps(2) infinite;
+}
+.st.waiting {
+  background: radial-gradient(circle at 35% 30%, #ffe2a0, #ffb524 55%, #8a6112);
+  box-shadow: inset 0 0 2px #0006, 0 0 9px #ffb524aa;
+}
+.st.idle { background: #3a2a12; box-shadow: inset 0 0 4px #000; }
+.st.parked { background: #4d5450; box-shadow: inset 0 0 4px #000; }
+@keyframes pulse { 50% { opacity: .35; box-shadow: inset 0 0 2px #0006, 0 0 3px #5be07044; } }
+@keyframes sovlamp { 50% { opacity: .35; box-shadow: inset 0 0 2px #0006, 0 0 3px #5be07044; } }
+
+/* ---------- тело карточки: фосфорный ЭЛТ-экран ---------- */
+.acard-body {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 2px, #0000000f 2px 3px),
+    radial-gradient(ellipse at center, #0a1a10 0%, #07130c 75%);
+  color: #6fce80;
+  text-shadow: 0 0 4px #5be07033;
+  border-top: 1px solid #000;
+  box-shadow: inset 0 0 18px #000c, inset 0 0 0 1px #0b0f0c;
+}
+.acard-body::-webkit-scrollbar { width: 5px; }
+.acard-body::-webkit-scrollbar-thumb { background: #2c6e3a; border-radius: 2px; box-shadow: inset 0 0 2px #000; }
+.acard-body::-webkit-scrollbar-thumb:hover { background: #3f8a4e; }
+
+/* ---------- низ карточки: пульт с клавишами ---------- */
+.acard-actions {
+  border-top: 1px solid #232d25;
+  background: linear-gradient(180deg, #2c372f, #26302a);
+  box-shadow: inset 0 1px 0 #ffffff10;
+}
+.acard-actions .meta { color: #95917c; }
+.acard-actions .meta-tip {
+  background: linear-gradient(180deg, #e4ddc4, #c9c1a4); color: #34332a;
+  border-color: #8a642a;
+  border-radius: 3px;
+  box-shadow: inset 0 1px 0 #ffffff80, 0 3px 0 #6b6248, 0 8px 18px #0009;
+}
+.acard-actions .meta-tip-main { text-transform: uppercase; letter-spacing: .06em; }
+.acard-actions .meta-tip-time { color: #6b6248; }
+.acard-actions .meta-tip .agent-logo-codex,
+.acard-actions .meta-tip .agent-logo-cursor { color: #34332a; }
+.acard-actions button {
+  color: #12210f;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  text-shadow: 0 1px 0 #ffffff52;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #cfd3cd, #9aa19b);
+  border: 1px solid #5c625f;
+  box-shadow: inset 0 1px 0 #ffffffaa, 0 2px 0 #565b56, 0 3px 4px #0006;
+}
+.acard-actions button:hover { color: #12210f; background: linear-gradient(180deg, #dbdfd9, #a7aea8); }
+.acard-actions button:active { transform: translateY(2px); box-shadow: inset 0 1px 0 #ffffffaa, 0 0 0 #565b56; }
+.acard-actions .primary {
+  background: linear-gradient(180deg, #86c98f 0%, #5aa06a 48%, #3f7a4c 100%);
+  border-color: #16281a;
+  color: #12210f;
+  box-shadow: 0 2px 0 #14301c, 0 3px 4px #0008, inset 0 1px 0 #ffffff5c, inset 0 -2px 3px #0005;
+}
+.acard-actions .primary:hover { background: linear-gradient(180deg, #93d69c 0%, #64ac74 48%, #468453 100%); }
+.acard-actions .primary:active { transform: translateY(2px); box-shadow: 0 0 0 #14301c, inset 0 2px 4px #0006; }
+
+/* ---------- попап: служебный бланк, бумага АЦПУ ---------- */
+#popover {
+  background: #e9e2c9;
+  background-image:
+    radial-gradient(circle, #00000038 2px, transparent 2.7px),
+    radial-gradient(circle, #00000038 2px, transparent 2.7px),
+    repeating-linear-gradient(0deg, transparent 0 15px, #00000008 15px 16px),
+    radial-gradient(ellipse at 60% 20%, #fff5 0, transparent 60%),
+    linear-gradient(90deg, #00000012 0 16px, transparent 16px calc(100% - 16px), #00000012 calc(100% - 16px));
+  background-repeat: repeat-y, repeat-y, repeat, no-repeat, no-repeat;
+  background-position: left 5px top 8px, right 5px top 8px, 0 0, 0 0, 0 0;
+  background-size: 12px 14px, 12px 14px, auto, auto, auto;
+  border: 1px solid #948a6f;
+  border-radius: 3px;
+  box-shadow: 0 14px 36px #000c, inset 0 0 22px #6b551f14;
+  color: #2e2b20;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+#popover .po-head {
+  color: #4a3f22;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-align: center;
+  border-bottom: 1px dashed #948a6f;
+}
+#popover .po-head::before { content: "★ "; color: #b3362a; }
+#popover .po-head::after { content: " ★"; color: #b3362a; }
+#popover .po-item { color: #2e2b20; }
+#popover .po-item:hover { background: #d9d0b0; }
+#popover .po-sess .t { color: #2e2b20; font-weight: 700; }
+#popover .po-sess .m { color: #7a6f50; }
+#popover .po-empty { color: #7a6f50; font-style: italic; }
+#popover .po-x { color: #948a6f; }
+#popover .po-item:hover .po-x { opacity: 1; }
+#popover .po-x:hover { background: #b3362a; color: #f2e6d0; }
+/* лого проекта — эмалевый значок: жёсткий кант, лёгкая сепия, без глоу */
+#popover .po-logo {
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px #948a6f;
+  filter: sepia(0.25);
+}
+#popover .po-folder { color: #7a6f50; }
+#popover textarea {
+  background: #f2ecd6;
+  color: #2e2b20;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  border: 1px solid #948a6f;
+  border-radius: 2px;
+  box-shadow: inset 0 1px 4px #6b551f22;
+}
+#popover textarea:focus { border-color: #8a642a; box-shadow: inset 0 1px 4px #6b551f22, 0 0 0 2px #8a642a33; }
+#popover textarea::placeholder { color: #9c9070; }
+#popover .po-btn {
+  color: #12210f;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  text-shadow: 0 1px 0 #ffffff52;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #cfd3cd, #9aa19b);
+  border: 1px solid #5c625f;
+  box-shadow: inset 0 1px 0 #ffffffaa, 0 2px 0 #565b56, 0 3px 4px #0006;
+}
+#popover .po-btn:hover { color: #12210f; background: linear-gradient(180deg, #dbdfd9, #a7aea8); }
+#popover .po-btn:active { transform: translateY(2px); box-shadow: inset 0 1px 0 #ffffffaa, 0 0 0 #565b56; }
+#popover .po-btn.primary {
+  background: linear-gradient(180deg, #86c98f 0%, #5aa06a 48%, #3f7a4c 100%);
+  border-color: #16281a;
+  color: #12210f;
+  box-shadow: 0 2px 0 #14301c, 0 3px 4px #0008, inset 0 1px 0 #ffffff5c, inset 0 -2px 3px #0005;
+}
+#popover .po-btn.primary:hover { background: linear-gradient(180deg, #93d69c 0%, #64ac74 48%, #468453 100%); }
+
+/* ---------- пустая доска ---------- */
+#empty {
+  color: #a69d82;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "PT Serif", "Times New Roman", serif;
+  text-shadow: 0 1px 2px #000b;
+}
+#empty code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: #c9c1a4;
+  background-image: linear-gradient(180deg, #ffffff28, transparent 45%, #00000014);
+  border: 1px solid #948a6f;
+  border-radius: 3px;
+  color: #34332a;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 #ffffff40, 0 2px 3px #0008;
+  text-shadow: 0 1px 0 #ffffff38;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .st.working { animation: none; }
+  .acard.waiting { animation: none; }
+  #stale { animation: none; }
+}
+
+/* ---------- композер нового агента: бланк + ЭЛТ ---------- */
+.composer { background: #07130c; border: 1px solid #253b2c; border-radius: 6px; width: 380px; }
+.composer:focus-within { border-color: #5be070; }
+.composer textarea { background: transparent; color: #5be070; }
+.epill { color: #8fa08a; }
+.epill:hover { background: #12211a; border-color: #2c473a; }
+.emenu {
+  background: #e9e2c9; color: #2b302f;
+  border: 2px solid #8a642a; border-radius: 4px;
+  box-shadow: 4px -4px 0 rgba(0,0,0,0.35);
+}
+.m-engines { border-bottom: 1px dashed #8a642a; }
+.eng:hover { background: #d8d1ba; }
+.eng.on { background: #d8d1ba; border-color: #8a642a; }
+.m-item { color: #2b302f; }
+.m-item:hover { background: #d8d1ba; }
+.m-item .ck { color: #b3362a; }
+.m-item .mdef, .m-label { color: #8a642a; }
+.m-lvl { background: #d8d1ba; color: #2b302f; border: 1px solid #8a642a; border-radius: 3px; }
+.m-lvl.sel { background: #b3362a; border-color: #7c241c; color: #f5eeda; }
+.send {
+  background: #37453a; border: 1px solid #263129; color: #c9e8b0;
+  border-radius: 5px; box-shadow: 0 2px 0 #1c231e;
+}
+.send:hover { background: #415449; }
+.send:active { transform: translateY(1px); box-shadow: 0 1px 0 #1c231e; }
+#popover .po-check { color: #b3362a; }
+.agent-logo-codex, .agent-logo-cursor { color: #c9c1a4; }
+.acard-body .umsg { color: #d8d1ba; background: rgba(201,193,164,0.08); border-left-color: #8a642a; }
+
+/* ---------- композер внутри карточки ---------- */
+.acard.open-in {
+  border-color: #5be070;
+  box-shadow: 0 0 14px #5be07033, 0 20px 48px #000c;
+}
+.acard.open-in .cmp-in { border-top-color: #14181660; }
+.cmp-row .kbd { color: #9c9070; }
+
+/* ---------- реактивность: акценты анимаций ---------- */
+:root {
+  --acc: #5be070;
+  --flash: rgba(91, 224, 112, 0.5);
+  --ldr: #3f8a4e;
+}
+/* призрак ответа — бумажный талон, летящий на фосфорный экран */
+.gmsg { color: #d8d1ba; background: rgba(201, 193, 164, 0.14); border-left-color: #8a642a; }
+/* лампочки лоудера светятся, как сигнальные */
+.ldr i { box-shadow: 0 0 6px #5be07088; }

@@ -1,0 +1,14 @@
+# локальное состояние доски — личные данные, создаётся при первом запуске
+board.json
+
+# артефакты сборки
+AgentBoard.app/
+app/AgentBoard-bin
+app/AppIcon.icns
+app/AppIcon.iconset/
+__pycache__/
+
+# бэкапы установщика хуков
+*.agentboard-bak
+
+.DS_Store

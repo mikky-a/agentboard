@@ -1,0 +1,280 @@
+/* name: macOS */
+/* macOS liquid glass — светлый скин поверх базовой терминальной темы */
+
+body {
+  background: #e8eaf2;
+  color: #1d1d1f;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+/* «обои» macOS: мягкий пастельный градиент, прибит к окну */
+body::before {
+  background:
+    radial-gradient(90% 90% at 15% 10%, rgba(168, 200, 255, 0.85) 0%, rgba(168, 200, 255, 0) 60%),
+    radial-gradient(80% 90% at 85% 15%, rgba(216, 190, 255, 0.75) 0%, rgba(216, 190, 255, 0) 60%),
+    radial-gradient(90% 80% at 75% 90%, rgba(255, 205, 225, 0.7) 0%, rgba(255, 205, 225, 0) 65%),
+    radial-gradient(80% 80% at 20% 85%, rgba(185, 233, 245, 0.7) 0%, rgba(185, 233, 245, 0) 60%),
+    linear-gradient(160deg, #eef1f9 0%, #e9e6f4 50%, #f2ecf3 100%);
+}
+
+/* ---------- топбар: frosted glass ---------- */
+.topbar {
+  background: rgba(248, 249, 252, 0.72);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 12px rgba(0, 0, 0, 0.05);
+}
+.topbar b { color: #1d1d1f; }
+.counts { color: #6e6e73; }
+.counts .w { color: #34c759; }
+.counts .q { color: #ff9f0a; }
+#stale { color: #ff9f0a !important; }
+.hint { color: #86868b; }
+
+/* кнопки-капсулы */
+.top-btn {
+  background: #0a84ff;
+  color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 2px rgba(10, 132, 255, 0.3);
+}
+.top-btn:hover { background: #0071e3; }
+.top-btn.ghost {
+  background: rgba(255, 255, 255, 0.65);
+  color: #1d1d1f;
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.top-btn.ghost:hover { background: rgba(255, 255, 255, 0.95); color: #1d1d1f; }
+
+/* плашка онбординга хуков: янтарная стеклянная капсула */
+.hooksbar {
+  color: #9a6200;
+  background: rgba(255, 159, 10, 0.14);
+  border: 1px solid rgba(255, 159, 10, 0.4);
+}
+.hooksbar .wdot { background: #ff9f0a; }
+
+.skin-sel {
+  background: rgba(255, 255, 255, 0.65);
+  color: #1d1d1f;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 7px;
+  accent-color: #0a84ff;
+}
+.skin-sel:focus { border-color: #0a84ff; }
+
+/* ---------- карточка агента: матовое стекло ---------- */
+.acard {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 15px;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    0 12px 32px rgba(0, 0, 0, 0.12);
+}
+.acard.dragging {
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.1),
+    0 8px 18px rgba(0, 0, 0, 0.12),
+    0 28px 60px rgba(0, 0, 0, 0.22);
+}
+.acard.waiting {
+  border-color: rgba(255, 159, 10, 0.55);
+  animation: glow 1.6s ease-in-out infinite;
+}
+@keyframes glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.08),
+      0 12px 32px rgba(0, 0, 0, 0.12),
+      0 0 10px rgba(255, 159, 10, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.08),
+      0 12px 32px rgba(0, 0, 0, 0.12),
+      0 0 26px rgba(255, 159, 10, 0.45);
+  }
+}
+.acard.parked { border-style: dashed; border-color: rgba(100, 130, 160, 0.5); }
+.acard.parked .acard-body { color: #86868b; font-style: italic; }
+
+.acard-head {
+  background: rgba(255, 255, 255, 0.45);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+.hlogo { border-radius: 6px; box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1); }
+.ntext { color: #1d1d1f; }
+.ntext[contenteditable="plaintext-only"] {
+  outline: 2px solid #0a84ff;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.85);
+}
+.proj { color: #86868b; }
+.xbtn { color: #a1a1a6; }
+.xbtn:hover { background: rgba(255, 59, 48, 0.12); color: #ff3b30; }
+
+/* статусные точки Apple */
+.st.working {
+  background: #34c759;
+  animation: pulse 1.7s infinite;
+}
+.st.waiting { background: #ff9f0a; }
+.st.idle { background: #8e8e93; }
+.st.parked { background: #64d2ff; }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.45); }
+  70% { box-shadow: 0 0 0 7px rgba(52, 199, 89, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0); }
+}
+
+.acard-body {
+  color: #48484d;
+  font-family: "SF Mono", ui-monospace, Menlo, Monaco, monospace;
+}
+.acard-body::-webkit-scrollbar { width: 5px; }
+.acard-body::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.16); border-radius: 3px; }
+.acard-body::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.28); }
+
+.acard-actions { border-top: 1px solid rgba(0, 0, 0, 0.07); }
+.acard-actions .meta-tip {
+  background: rgba(255,255,255,0.92); color: #1d1d1f;
+  backdrop-filter: blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  border-color: rgba(255,255,255,0.9);
+  border-radius: 11px;
+  box-shadow: 0 0 0 .5px rgba(0,0,0,.08), 0 10px 28px rgba(0,0,0,0.18);
+}
+.acard-actions .meta-tip-time { color: #6e6e73; }
+.acard-actions .meta-tip .agent-logo-codex,
+.acard-actions .meta-tip .agent-logo-cursor { color: #1d1d1f; }
+.acard-actions button {
+  background: rgba(255, 255, 255, 0.7);
+  color: #1d1d1f;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 99px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+.acard-actions button:hover { background: #fff; color: #1d1d1f; }
+.acard-actions .primary {
+  background: #0a84ff;
+  border-color: rgba(0, 0, 0, 0.04);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(10, 132, 255, 0.3);
+}
+.acard-actions .primary:hover { background: #0071e3; color: #fff; }
+
+/* ---------- попап: меню macOS ---------- */
+#popover {
+  background: rgba(250, 250, 252, 0.82);
+  backdrop-filter: blur(28px) saturate(1.8);
+  -webkit-backdrop-filter: blur(28px) saturate(1.8);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.05),
+    0 10px 24px rgba(0, 0, 0, 0.14),
+    0 24px 60px rgba(0, 0, 0, 0.22);
+}
+#popover .po-head {
+  color: #6e6e73;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+#popover .po-item { color: #1d1d1f; }
+#popover .po-item:hover { background: rgba(0, 0, 0, 0.06); }
+#popover .po-sess .t { color: #1d1d1f; }
+#popover .po-sess .m { color: #86868b; }
+#popover .po-empty { color: #86868b; }
+#popover .po-x { color: #a1a1a6; }
+#popover .po-x:hover { background: rgba(255, 59, 48, 0.12); color: #ff3b30; }
+/* лого проекта — как иконка приложения: скругление и волосяная обводка вместо глоу */
+#popover .po-logo {
+  border-radius: 5px;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+#popover .po-folder { color: #a1a1a6; }
+#popover textarea {
+  background: rgba(255, 255, 255, 0.85);
+  color: #1d1d1f;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+}
+#popover textarea:focus {
+  border-color: #0a84ff;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.2);
+}
+#popover .po-btn {
+  background: rgba(255, 255, 255, 0.8);
+  color: #1d1d1f;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 99px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+#popover .po-btn:hover { background: #fff; color: #1d1d1f; }
+#popover .po-btn.primary {
+  background: #0a84ff;
+  border-color: rgba(0, 0, 0, 0.04);
+  color: #fff;
+}
+#popover .po-btn.primary:hover { background: #0071e3; color: #fff; }
+
+/* ---------- пустая доска ---------- */
+#empty { color: #6e6e73; }
+#empty code {
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  color: #0a84ff;
+}
+
+/* ---------- композер нового агента и его меню ---------- */
+.composer { background: rgba(255,255,255,0.55); border-color: rgba(0,0,0,0.1); }
+.composer:focus-within { border-color: #0A84FF; }
+.composer textarea { background: transparent; color: #1d1d1f; }
+.epill { color: #6e6e73; }
+.epill:hover { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.1); }
+.epill .chev { color: #86868b; }
+.emenu {
+  background: rgba(255,255,255,0.9);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
+  border-color: rgba(0,0,0,0.12);
+  box-shadow: 0 -8px 32px rgba(0,0,0,0.18);
+}
+.m-engines { border-bottom-color: rgba(0,0,0,0.08); }
+.eng:hover { background: rgba(0,0,0,0.05); }
+.eng.on { background: rgba(10,132,255,0.12); border-color: #0A84FF; }
+.m-item { color: #1d1d1f; }
+.m-item:hover { background: rgba(0,0,0,0.06); }
+.m-item .ck { color: #0A84FF; }
+.m-item .mdef, .m-label { color: #86868b; }
+.m-lvl { background: rgba(0,0,0,0.04); color: #6e6e73; border-color: rgba(0,0,0,0.1); }
+.m-lvl:hover { color: #1d1d1f; }
+.m-lvl.sel { background: #0A84FF; border-color: #0A84FF; color: #fff; }
+.send { background: #0A84FF; border-color: #0A84FF; color: #fff; }
+.send:hover { background: #0071e3; }
+#popover .po-check { color: #0A84FF; }
+.agent-logo-codex, .agent-logo-cursor { color: #3a3a3c; }
+.acard-body .umsg { color: #3a6ea5; background: rgba(10,132,255,0.08); border-left-color: #0A84FF; }
+
+/* ---------- композер внутри карточки ---------- */
+.acard.open-in {
+  border-color: #0A84FF;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+}
+.acard.open-in .cmp-in { border-top-color: rgba(0, 0, 0, 0.07); }
+.cmp-row .kbd { color: #86868b; }
+
+/* ---------- реактивность: акценты анимаций ---------- */
+:root {
+  --acc: #0a84ff;
+  --flash: rgba(10, 132, 255, 0.35);
+  --ldr: #86868b;
+}
+.gmsg { color: #3a6ea5; background: rgba(10, 132, 255, 0.1); border-left-color: #0a84ff; }

@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Board</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  /* акценты анимаций — скины переопределяют под свою тему */
+  :root {
+    --acc: #5bd98a;
+    --flash: rgba(91,217,138,0.4);
+    --ldr: #5f7a6b;
+  }
+  body {
+    background: #0a100d;
+    color: #c7d4cc;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    overflow: auto;
+  }
+  /* градиент прибит к окну, не скроллится с доской — иначе полосит */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(120% 140% at 20% 0%, #1d2f26 0%, #0e1713 45%, #0a100d 100%);
+  }
+
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    display: flex; align-items: center; gap: 14px;
+    padding: 9px 18px;
+    background: rgba(10,15,12,0.75);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid #243028;
+    font-size: 13px;
+  }
+  .topbar b { color: #e2ece5; letter-spacing: 0.02em; }
+  .topbar .sp { flex: 1; }
+  .ver { color: #3f4c45; font-size: 11px; }
+  /* чипы-папки: серые, пока не выбраны; прячутся, если проект один */
+  .chips { display: flex; align-items: center; gap: 2px; }
+  .chip {
+    font: inherit; font-size: 12px;
+    padding: 2px 9px; border-radius: 99px; cursor: pointer;
+    background: transparent; border: 1px solid transparent; color: #5f7a6b;
+  }
+  .chip:hover { color: #c7d4cc; background: #1c2a22; }
+  .chip.on { color: #9fc7ae; background: #17251d; border-color: #2c3a32; }
+  .chip .c { color: #46564d; font-size: 10.5px; margin-left: 3px; }
+  .chip.on .c { color: #5f7a6b; }
+  /* бейджи статусов — появляются, только когда есть кого показать */
+  .wbadge, .gbadge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600;
+    padding: 2px 9px; border-radius: 99px;
+    cursor: default;
+  }
+  .wbadge {
+    color: #e8b44b; background: rgba(232,180,75,0.09);
+    border: 1px solid rgba(232,180,75,0.3);
+    animation: wglow 1.8s ease-in-out infinite;
+  }
+  .gbadge {
+    color: #5bd98a; background: rgba(91,217,138,0.08);
+    border: 1px solid rgba(91,217,138,0.28);
+  }
+  .wbadge[hidden], .gbadge[hidden] { display: none; }
+  .wbadge .wdot { width: 7px; height: 7px; border-radius: 50%; background: #e8b44b; }
+  .gbadge .gdot { width: 7px; height: 7px; border-radius: 50%; background: #5bd98a; }
+  @keyframes wglow {
+    0%, 100% { box-shadow: 0 0 0 rgba(232,180,75,0); }
+    50% { box-shadow: 0 0 10px rgba(232,180,75,0.25); }
+  }
+  /* онбординг: статус-хуки CLI ещё не установлены */
+  .hooksbar { animation: none; gap: 8px; }
+  .hooksbar .top-btn { padding: 1px 10px; font-size: 12px; }
+  .top-btn {
+    font: inherit; font-size: 13px; font-weight: 600;
+    padding: 3px 14px; border-radius: 99px; cursor: pointer;
+    background: #205c3b; color: #eafff2; border: 1px solid #2e7a52;
+  }
+  .top-btn:hover { background: #27714a; }
+  .top-btn.ghost { background: #1c2a22; color: #b8c6bd; border-color: #33413a; font-weight: 400; }
+  .top-btn.ghost:hover { background: #24352b; color: #e2ece5; }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; padding: 0; border-radius: 50%;
+  }
+  .icon-btn svg { display: block; }
+  #popover .po-check { flex: none; width: 14px; color: #5bd98a; }
+  #popover .po-agents { gap: 6px; }
+  #popover .agent-pick.active {
+    background: #205c3b; border-color: #2e7a52; color: #eafff2;
+  }
+  .agent-logo {
+    display: inline-block; flex: none;
+    width: 15px; height: 15px;
+    color: #9fb4c7; background: currentColor;
+    -webkit-mask: center / contain no-repeat;
+    mask: center / contain no-repeat;
+  }
+  .agent-logo-claude {
+    color: #d97757;
+    -webkit-mask-image: url('/assets/agent-claude.svg');
+    mask-image: url('/assets/agent-claude.svg');
+  }
+  .agent-logo-codex {
+    -webkit-mask-image: url('/assets/agent-codex.svg');
+    mask-image: url('/assets/agent-codex.svg');
+  }
+  .agent-logo-cursor {
+    -webkit-mask-image: url('/assets/agent-cursor.svg');
+    mask-image: url('/assets/agent-cursor.svg');
+  }
+  .hint { margin-left: auto; color: #5f7a6b; font-size: 12px; }
+
+  #canvas { position: relative; min-width: 100vw; min-height: 100vh; }
+
+  /* ---------- карточка агента ---------- */
+  .acard {
+    position: absolute;
+    width: 280px;
+    background: rgba(14,20,17,0.94);
+    border: 1px solid #2c3a32;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    font-family: "SF Mono", ui-monospace, Menlo, Monaco, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    cursor: grab;
+    touch-action: none;
+  }
+  .acard:active { cursor: grabbing; }
+  .acard.dragging { z-index: 40; box-shadow: 0 24px 50px rgba(0,0,0,0.65); }
+  .acard.waiting {
+    border-color: #8a6d20;
+    animation: glow 1.6s ease-in-out infinite;
+  }
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 10px 30px rgba(0,0,0,0.45), 0 0 10px rgba(232,180,75,0.12); }
+    50% { box-shadow: 0 10px 30px rgba(0,0,0,0.45), 0 0 26px rgba(232,180,75,0.35); }
+  }
+  .acard.parked { border-style: dashed; border-color: #3a4a55; }
+  .acard.parked .acard-body { color: #6d7d86; font-style: italic; }
+
+  .acard-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px 7px 10px;
+    background: rgba(22,30,25,0.9);
+    border-bottom: 1px solid #243028;
+  }
+  .name {
+    /* контейнер тянется (за него можно таскать), текст — по содержимому */
+    flex: 1 1 auto; min-width: 0;
+    display: flex; align-items: center;
+  }
+  .ntext {
+    color: #e2ece5; font-weight: 700; font-size: 12px;
+    max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: text;
+  }
+  .ntext[contenteditable="plaintext-only"] {
+    outline: 1px solid #2e7a52; border-radius: 4px; padding: 0 4px;
+    white-space: nowrap;
+  }
+  .proj {
+    /* папка ужимается первой — приоритет у названия сессии */
+    flex: 0 4 auto; min-width: 24px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 10px; color: #5f7a6b;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .xbtn {
+    flex: none; font: inherit; line-height: 1;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 0; background: transparent; color: #4a564f;
+    cursor: pointer; font-size: 14px; padding: 0 0 2px;
+  }
+  .xbtn:hover { background: #3a2323; color: #e8b0b0; }
+
+  .st { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .st.working { background: #5bd98a; animation: pulse 1.7s infinite; }
+  .st.waiting { background: #e8b44b; }
+  .st.idle { background: #55625b; }
+  .st.parked { background: #46626f; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(91,217,138,0.45); }
+    70% { box-shadow: 0 0 0 7px rgba(91,217,138,0); }
+    100% { box-shadow: 0 0 0 0 rgba(91,217,138,0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .st.working { animation: none; }
+    .acard.waiting { animation: none; }
+    .wbadge { animation: none; }
+    .acard.born, .acard.born::after, .umsg.grow, .st.rip, .ldr i, .acard-body.fresh { animation: none; }
+    .gmsg, .acard-body .old { transition: none; }
+  }
+
+  .hlogo {
+    flex: none;
+    width: 22px; height: 22px;
+    object-fit: cover;
+    border-radius: 6px;
+  }
+  .acard-body {
+    padding: 8px 10px;
+    color: #8fa398;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 128px;
+    overflow-y: auto;
+  }
+  .acard-body .tcall { color: #5f6f66; }
+  .acard-body .umsg {
+    display: block;
+    margin: 0 0 4px;
+    padding: 3px 8px;
+    color: #9fc7ae;
+    background: rgba(46,122,82,0.1);
+    border-left: 2px solid #2e7a52;
+    border-radius: 0 6px 6px 0;
+    white-space: normal;
+  }
+  .acard-body .tres { display: block; }
+  .acard-body .tres summary {
+    cursor: pointer; color: #5f6f66; list-style: none;
+  }
+  .acard-body .tres summary::-webkit-details-marker { display: none; }
+  .acard-body .tres summary:hover { color: #8fa398; }
+  .acard-body .tres .more {
+    color: #4a564f; font-size: 10px;
+    border: 1px solid #2c3a32; border-radius: 4px; padding: 0 4px;
+  }
+  .acard-body .tres[open] { color: #6d7d76; }
+  .acard-body::-webkit-scrollbar { width: 5px; }
+  .acard-body::-webkit-scrollbar-thumb { background: #2c3a32; border-radius: 3px; }
+  .acard-body::-webkit-scrollbar-thumb:hover { background: #3a4a40; }
+
+  .acard-actions {
+    display: flex; gap: 8px; align-items: center;
+    padding: 7px 10px;
+    border-top: 1px solid #243028;
+  }
+  .acard-actions .meta {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 8px;
+    min-width: 0; min-height: 24px;
+    position: relative; cursor: help;
+    padding-left: 8px;
+  }
+  .meta-tip {
+    position: absolute; right: 0; bottom: calc(100% + 7px); z-index: 5;
+    min-width: 148px; max-width: 250px;
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 10px; border-radius: 8px;
+    background: #d9e5dd; color: #17211b;
+    border: 1px solid #8fa398;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.38), 0 0 12px rgba(91,217,138,0.12);
+    text-align: left;
+    pointer-events: none; visibility: hidden; opacity: 0;
+  }
+  .acard-actions .meta:hover .meta-tip {
+    visibility: visible; opacity: 1;
+  }
+  .meta-tip .agent-logo { width: 18px; height: 18px; }
+  .meta-tip .agent-logo-codex, .meta-tip .agent-logo-cursor { color: #205c3b; }
+  .meta-tip-copy { display: grid; gap: 1px; min-width: 0; }
+  .meta-tip-main { font-size: 11px; font-weight: 700; line-height: 1.25; white-space: nowrap; }
+  .meta-tip-time { color: #5f6f66; font-size: 10.5px; line-height: 1.25; white-space: nowrap; }
+  .meta-tip-time:empty { display: none; }
+  .acard-actions button {
+    font: inherit; font-size: 11px;
+    padding: 3px 10px; border-radius: 6px; cursor: pointer;
+    background: #1c2a22; color: #b8c6bd; border: 1px solid #33413a;
+  }
+  .acard-actions button:hover { background: #24352b; color: #e2ece5; }
+  .acard-actions .icon-sm {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; padding: 0; border-radius: 6px;
+  }
+  .acard-actions .icon-sm svg { display: block; pointer-events: none; }
+  .acard-actions .primary { background: #205c3b; border-color: #2e7a52; color: #eafff2; }
+
+  /* композер внутри карточки — разворачивается под рядом кнопок */
+  .acard.open-in {
+    border-color: #2e7a52; z-index: 10;
+    box-shadow: 0 20px 48px rgba(0,0,0,0.7);
+  }
+  .cmp-in {
+    max-height: 0; overflow: hidden; opacity: 0;
+    border-top: 1px solid transparent;
+    transition: max-height 0.28s cubic-bezier(0.2,0.8,0.25,1), opacity 0.2s;
+  }
+  .acard.open-in .cmp-in { max-height: 160px; opacity: 1; border-top-color: #243028; }
+
+  /* ---------- реактивность: рождение карточки и полёт ответа ---------- */
+  /* новая карточка материализуется: спружинивает из глубины + вспышка рамки */
+  .acard.born { animation: bornIn 0.55s cubic-bezier(0.2,0.9,0.3,1.2) both; }
+  @keyframes bornIn {
+    0% { opacity: 0; transform: scale(0.86) translateY(16px); filter: blur(5px); }
+    60% { opacity: 1; filter: blur(0); }
+    100% { opacity: 1; transform: none; filter: none; }
+  }
+  .acard.born::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    animation: landFlash 0.8s ease-out 0.35s both;
+  }
+  @keyframes landFlash {
+    0% { box-shadow: inset 0 0 0 1px var(--acc), 0 0 22px var(--flash); }
+    100% { box-shadow: inset 0 0 0 1px transparent, 0 0 0 transparent; }
+  }
+
+  /* лоудер, пока агент ещё ничего не вывел */
+  .ldr { display: flex; align-items: center; gap: 7px; color: var(--ldr); padding-top: 2px; }
+  .ldr i {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--acc);
+    animation: dotHop 1.05s ease-in-out infinite;
+  }
+  .ldr i:nth-child(2) { animation-delay: 0.15s; }
+  .ldr i:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes dotHop {
+    0%, 100% { opacity: 0.55; }
+    30% { transform: translateY(-4px); opacity: 1; }
+    60% { transform: none; }
+  }
+  /* первый вывод сменяет лоудер мягким проявлением */
+  .acard-body.fresh { animation: freshIn 0.4s ease-out; }
+  @keyframes freshIn { from { opacity: 0; transform: translateY(4px); } }
+
+  /* ответ юзера летит из композера на верх терминала
+     (не .ghost — так называются серые кнопки топбара) */
+  .gmsg {
+    position: absolute; z-index: 5; pointer-events: none;
+    width: calc(100% - 40px);
+    padding: 3px 8px; color: #9fc7ae; background: rgba(46,122,82,0.16);
+    border-left: 2px solid #2e7a52; border-radius: 0 6px 6px 0;
+    font-size: 11px; line-height: 1.5;
+    transition: transform 0.5s cubic-bezier(0.3,0.8,0.3,1);
+    will-change: transform;
+  }
+  /* старый вывод вытесняется: уезжает вверх и тает */
+  .acard-body .old { transition: transform 0.45s ease-in, opacity 0.4s ease-in; }
+  .acard-body .old.out { transform: translateY(-26px); opacity: 0; }
+  /* посадка сообщения: вспышка + разворот */
+  .umsg.grow {
+    animation: landPulse 0.7s ease-out both, growIn 0.3s cubic-bezier(0.2,0.8,0.3,1.1) both;
+  }
+  @keyframes landPulse {
+    0% { background: var(--flash); box-shadow: 0 0 14px var(--flash); }
+    100% { box-shadow: none; }
+  }
+  @keyframes growIn { from { opacity: 0; transform: scale(0.85) translateY(-4px); transform-origin: 20% 0; } }
+  /* одноразовое кольцо на статусе: ответ дошёл, агент снова работает */
+  .st.rip { animation: stRing 0.8s ease-out both; }
+  @keyframes stRing {
+    0% { box-shadow: 0 0 0 0 var(--flash); transform: scale(0.6); }
+    60% { transform: scale(1.15); }
+    100% { box-shadow: 0 0 0 12px transparent; transform: none; }
+  }
+
+  /* ---------- попап ---------- */
+  #popover {
+    position: absolute; z-index: 60;
+    min-width: 260px; max-width: 480px;
+    background: #101713;
+    border: 1px solid #35473c;
+    border-radius: 10px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+    display: none;
+    font-size: 12.5px;
+    /* overflow видимый: меню моделей открывается вверх, за границу попапа */
+  }
+  #popover .po-head {
+    padding: 8px 12px; color: #8fa398;
+    border-bottom: 1px solid #243028;
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  #popover .po-item {
+    display: block; width: 100%; text-align: left;
+    font: inherit; padding: 8px 12px; border: 0; cursor: pointer;
+    background: transparent; color: #c7d4cc;
+  }
+  #popover .po-item:hover { background: #1c2a22; }
+  #popover .po-list { max-height: 340px; overflow-y: auto; }
+  #popover .po-sess { display: grid; gap: 2px; }
+  #popover .po-sess .t {
+    color: #d9e5dd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #popover .po-sess .m {
+    color: #5f7a6b; font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #popover .po-empty { padding: 14px 12px; color: #5f7a6b; }
+  /* вложенный раздел списка (недавно закрытые) — раскрывается на месте */
+  #popover .po-chev {
+    display: inline-block; width: 12px; color: #5f7a6b; font-size: 10px;
+    transition: transform 0.15s;
+  }
+  #popover .po-item.open .po-chev { transform: rotate(90deg); }
+  #popover .po-sub {
+    margin-left: 15px; border-left: 1px solid #2c3a32;
+    animation: subIn 0.12s ease;
+  }
+  #popover .po-sub .po-item { padding: 6px 12px 6px 11px; }
+  #popover .po-sub .m { font-size: 10.5px; }
+  #popover .po-sub .po-empty { padding: 8px 12px; font-size: 12px; }
+  @keyframes subIn { from { opacity: 0; transform: translateY(-3px); } }
+
+  /* ---------- композер нового агента ---------- */
+  .composer {
+    margin: 10px 12px 12px;
+    width: 380px; max-width: calc(100vw - 70px);
+    background: #0a100d;
+    border: 1px solid #2c3a32; border-radius: 12px;
+  }
+  .composer:focus-within { border-color: #2e7a52; }
+  .composer textarea {
+    border: 0 !important; background: transparent;
+    min-height: 76px; border-radius: 12px 12px 0 0;
+  }
+  .c-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px 8px 8px; }
+  .send {
+    margin-left: auto; flex: none;
+    width: 30px; height: 30px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: #205c3b; border: 1px solid #2e7a52; color: #eafff2;
+    cursor: pointer; font-size: 15px; padding: 0 0 2px;
+  }
+  .send:hover { background: #27714a; }
+  /* внутри карточки тот же .composer/.send, только компактнее — скины красят их сами */
+  .cmp-in .composer { width: auto; margin: 8px; }
+  .cmp-in textarea {
+    font: 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: block; width: 100%; resize: none;
+    color: #d9e5dd; outline: none;
+    padding: 7px 9px 2px;
+    min-height: 44px;
+  }
+  .cmp-row { display: flex; align-items: center; gap: 8px; padding: 0 6px 6px 9px; }
+  .cmp-row .kbd {
+    font-size: 10px; color: #4a564f;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .cmp-row .send { width: 26px; height: 26px; font-size: 13px; }
+  .pw { position: relative; min-width: 0; }
+  .epill {
+    font: inherit; font-size: 12px;
+    display: inline-flex; align-items: center; gap: 6px;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    padding: 4px 9px; border-radius: 8px; cursor: pointer;
+    background: transparent; color: #8fa398;
+    border: 1px solid transparent; white-space: nowrap;
+  }
+  .epill:hover { background: #131c17; border-color: #2c3a32; }
+  .epill .chev { font-size: 9px; color: #5f6f66; }
+  .epill svg, .epill .agent-logo { flex: none; }
+  .emenu {
+    position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 8;
+    min-width: 220px; max-height: 320px; overflow-y: auto;
+    background: #101713;
+    border: 1px solid #35473c; border-radius: 11px;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.6);
+    padding: 6px;
+    display: none;
+  }
+  .emenu.open { display: block; }
+  .emenu.down {
+    bottom: auto; top: calc(100% + 6px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  .m-engines { display: flex; gap: 4px; padding: 2px 2px 8px; border-bottom: 1px solid #243028; margin-bottom: 6px; }
+  .eng {
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid transparent; border-radius: 8px;
+    cursor: pointer; opacity: 0.45;
+  }
+  .eng:hover { opacity: 0.85; background: #131c17; }
+  .eng.on { opacity: 1; background: #17251d; border-color: #2e7a52; }
+  .eng svg, .eng .agent-logo { display: block; pointer-events: none; }
+  .m-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; text-align: left;
+    font: inherit; font-size: 12.5px;
+    padding: 7px 9px; border: 0; border-radius: 7px;
+    background: transparent; color: #c7d4cc; cursor: pointer;
+  }
+  .m-item:hover { background: #1c2a22; }
+  .m-item .ck { width: 12px; color: #5bd98a; font-size: 11px; flex: none; }
+  .m-item .mdef { margin-left: auto; font-size: 9px; color: #4f6156; text-transform: uppercase; }
+  .m-label { font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #4f6156; padding: 6px 9px 3px; }
+  .m-levels { display: flex; gap: 4px; padding: 3px 4px 2px; }
+  .m-lvl {
+    flex: 1; font: inherit; font-size: 11px; text-align: center;
+    padding: 5px 0; border-radius: 6px; cursor: pointer;
+    background: #131c17; color: #7d8d84; border: 1px solid #2c3a32;
+  }
+  .m-lvl.sel { background: #205c3b; border-color: #2e7a52; color: #eafff2; }
+  #popover .po-flex { display: flex; align-items: center; gap: 8px; }
+  #popover .po-flex .t { flex: 1; }
+  /* лого проекта в списках выбора; .po-folder — заглушка, если лого нет */
+  #popover .po-logo {
+    flex: none; width: 18px; height: 18px; border-radius: 4px;
+    object-fit: cover;
+    box-shadow: 0 0 7px rgba(91, 217, 138, 0.25);   /* фосфорный отсвет */
+  }
+  #popover .po-folder {
+    flex: none; width: 18px; height: 18px;
+    display: flex; align-items: center; justify-content: center;
+    color: #5f7a6b;
+  }
+  #popover .po-x {
+    flex: none; width: 18px; height: 18px; line-height: 17px;
+    text-align: center; border-radius: 50%;
+    color: #4a564f; font-size: 13px;
+    opacity: 0;                       /* виден только при ховере строки */
+  }
+  #popover .po-item:hover .po-x { opacity: 1; }
+  #popover .po-x:hover { background: #3a2323; color: #e8b0b0; }
+  #popover .po-form { padding: 10px 12px; display: grid; gap: 8px; }
+  #popover textarea {
+    font: inherit; font-size: 12.5px;
+    width: 100%; min-height: 84px; resize: vertical;
+    background: #0a100d; color: #d9e5dd;
+    border: 1px solid #2c3a32; border-radius: 8px;
+    padding: 8px 10px; outline: none;
+  }
+  #popover textarea:focus { border-color: #2e7a52; }
+  #popover .po-row { display: flex; gap: 8px; }
+  #popover .po-btn {
+    font: inherit; font-size: 12px;
+    padding: 6px 12px; border-radius: 7px; cursor: pointer;
+    background: #1c2a22; color: #b8c6bd; border: 1px solid #33413a;
+  }
+  #popover .po-btn:hover { background: #24352b; color: #e2ece5; }
+  #popover .po-btn.primary { background: #205c3b; border-color: #2e7a52; color: #eafff2; }
+
+  #empty {
+    position: fixed; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    text-align: center; color: #5f7a6b; font-size: 14px; line-height: 2;
+  }
+  #empty code {
+    font-family: "SF Mono", ui-monospace, Menlo, monospace;
+    background: #16241c; border: 1px solid #2c3a32;
+    border-radius: 6px; padding: 2px 8px; color: #9fc7ae;
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <b>Agent Board</b>
+    <span class="chips" id="chips"></span>
+    <span id="stale" hidden style="color:#e8b44b;font-size:12px;font-weight:600">страница устарела — нажми Cmd+R</span>
+    <span class="sp"></span>
+    <span class="wbadge hooksbar" id="hooksbar" hidden
+          title="хуки в конфигах Claude Code и Codex сообщают доске, когда агент ждёт разрешения">
+      <i class="wdot"></i><span id="hooksbarText">доска не видит статусы агентов</span>
+      <button class="top-btn" id="hooksFix">включить хуки</button>
+    </span>
+    <span class="gbadge" id="gbadge" hidden><i class="gdot"></i><span id="gbadgeText"></span></span>
+    <span class="wbadge" id="wbadge" hidden><i class="wdot"></i><span id="wbadgeText"></span></span>
+    <button class="top-btn" id="topPlus">＋ агент</button>
+    <button class="top-btn ghost icon-btn" id="topHist" title="воскресить агента из истории">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.3"/><polyline points="3 3 3 7.5 7.5 7.5"/><polyline points="12 7 12 12 15.5 14"/></svg>
+    </button>
+    <button class="top-btn ghost icon-btn" id="topSettings" title="настройки">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33 1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82 1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <span class="ver">0.30</span>
+  </div>
+
+  <div id="canvas"></div>
+  <div id="popover"></div>
+
+  <div id="empty">
+    <div>
+      Доска пустая.<br>
+      Жми <code>＋ агент</code> — выбери проект, напиши задачу, агент появится плиткой<br>
+      и замигает, когда закончит или спросит.
+    </div>
+  </div>
+
+<script>
+  const canvas = document.getElementById('canvas');
+  const popover = document.getElementById('popover');
+  const CARD_W = 280, CARD_H = 195;
+  const pos = JSON.parse(localStorage.getItem('agentboard-pos-v2') || '{}');
+  const cards = {};      // name -> element
+  let lastAgents = [];
+  let projects = [];     // [{project, cwd, logo}] — знакомые доске папки
+  let dragging = null;
+  let booted = false;    // первый полл рисует доску без анимаций рождения
+  let filter = localStorage.getItem('agentboard-filter') || '';  // '' = все папки
+
+  function setFilter(p) {
+    filter = p;
+    localStorage.setItem('agentboard-filter', p);
+  }
+
+  // чипы рисуем, только если папок на доске больше одной
+  function renderChips(byProj) {
+    const el = document.getElementById('chips');
+    const names = Object.keys(byProj).sort();
+    const sig = JSON.stringify([filter, byProj]);
+    if (el.dataset.sig === sig) return;
+    el.dataset.sig = sig;
+    if (names.length < 2) { el.innerHTML = ''; return; }
+    el.innerHTML =
+      '<button class="chip' + (filter ? '' : ' on') + '" data-p="">все<span class="c">' +
+      lastAgents.length + '</span></button>' +
+      names.map(p =>
+        '<button class="chip' + (p === filter ? ' on' : '') + '" data-p="' + esc(p) + '">' +
+        esc(p) + '<span class="c">' + byProj[p] + '</span></button>').join('');
+    el.querySelectorAll('.chip').forEach(b => b.onclick = () => {
+      setFilter(b.dataset.p);
+      poll();
+    });
+  }
+
+  const api = p => fetch('/api/' + p).then(r => r.json()).catch(() => null);
+
+  // ошибки страницы — в лог сервера, чтобы их было видно при отладке
+  window.onerror = (msg, src, line, col) => {
+    fetch('/api/jslog?msg=' + encodeURIComponent(msg + ' @' + line + ':' + col));
+  };
+  function save() { localStorage.setItem('agentboard-pos-v2', JSON.stringify(pos)); }
+
+  function fmtAge(s) {
+    if (s < 60) return s + 'с';
+    if (s < 3600) return Math.floor(s / 60) + ' мин';
+    if (s < 86400) return Math.floor(s / 3600) + ' ч';
+    return Math.floor(s / 86400) + ' дн';
+  }
+
+  // ---------- размещение: новый агент встаёт справа от собратьев по папке ----------
+  const cardH = a => cards[a.name] ? cards[a.name].offsetHeight : CARD_H;
+
+  // «уронить» карточку в колонку x с высоты yStart: прижаться под мешающие плитки
+  function dropY(x, yStart, self) {
+    let y = yStart;
+    for (let k = 0; k < 50; k++) {
+      const hit = lastAgents.filter(a =>
+        a.name !== self && pos[a.name] &&
+        Math.abs(pos[a.name].x - x) < CARD_W + 16 &&
+        y < pos[a.name].y + cardH(a) + 16 && pos[a.name].y < y + CARD_H + 16);
+      if (!hit.length) return y;
+      y = Math.max(...hit.map(a => pos[a.name].y + cardH(a))) + 24;
+    }
+    return y;
+  }
+
+  function defaultPos(agent) {
+    const placed = lastAgents.filter(a => a.name !== agent.name && pos[a.name]);
+    if (!placed.length) return { x: 40, y: 90 };
+    // якорь — последняя созданная карточка этого проекта, иначе последняя вообще
+    const sib = placed.filter(a => a.project === agent.project);
+    const anchor = (sib.length ? sib : placed).reduce((m, a) =>
+      (pos[a.name].t || 0) > (pos[m.name].t || 0) ? a : m);
+    const p = pos[anchor.name];
+    const right = { x: p.x + CARD_W + 24, y: dropY(p.x + CARD_W + 24, p.y, agent.name) };
+    if (right.y === p.y) return right;                     // свободно прямо справа
+    const under = p.y + cardH(anchor) + 24;
+    const below = { x: p.x, y: dropY(p.x, under, agent.name) };
+    if (below.y === under) return below;                   // свободно прямо под якорем
+    // оба места заняты кем-то ниже — берём то, что ближе к якорю
+    const dr = (CARD_W + 24) ** 2 + (right.y - p.y) ** 2;
+    const db = (below.y - p.y) ** 2;
+    return db <= dr ? below : right;
+  }
+
+  // доска большая всегда (как в Miro) и дорастает, если контент уехал дальше
+  function fitCanvas() {
+    let w = 6000, h = 4000;
+    for (const a of lastAgents) {
+      const p = pos[a.name];
+      if (!p) continue;
+      const el = cards[a.name];
+      w = Math.max(w, p.x + CARD_W + 800);
+      h = Math.max(h, p.y + (el ? el.offsetHeight : CARD_H) + 800);
+    }
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+  }
+
+  // ---------- карточки ----------
+  function makeCard(agent) {
+    const el = document.createElement('div');
+    el.className = 'acard';
+    el.dataset.name = agent.name;
+    el.innerHTML =
+      '<div class="acard-head"><img class="hlogo" hidden alt="">' +
+      '<span class="name"><span class="ntext"></span></span>' +
+      '<button class="xbtn" data-act="remove" title="убрать с доски">×</button></div>' +
+      '<div class="acard-body"></div>' +
+      '<div class="acard-actions"></div>' +
+      '<div class="cmp-in"><div class="composer">' +
+      '<textarea rows="2" placeholder="написать агенту…"></textarea>' +
+      '<div class="cmp-row"><span class="kbd">⌘⏎ — отправить</span>' +
+      '<button class="send" title="отправить (⌘⏎)">↑</button></div></div></div>';
+
+    const p = pos[agent.name] || { ...defaultPos(agent), t: Date.now() };
+    pos[agent.name] = p;
+    save();
+    el.style.left = p.x + 'px';
+    el.style.top = p.y + 'px';
+
+    el.addEventListener('pointerdown', e => {
+      // тело скроллится, текст названия — для dblclick; остальное таскает
+      if (e.target.tagName === 'BUTTON' || e.target.classList.contains('ntext')
+          || e.target.closest('.acard-body') || e.target.closest('.cmp-in')) return;
+      e.preventDefault();
+      dragging = agent.name;
+      el.classList.add('dragging');
+      el.setPointerCapture(e.pointerId);
+      const startX = e.clientX, startY = e.clientY;
+      const orig = { ...pos[agent.name] };
+      const move = ev => {
+        pos[agent.name] = {
+          ...orig,
+          x: Math.max(10, orig.x + ev.clientX - startX),
+          y: Math.max(60, orig.y + ev.clientY - startY),
+        };
+        el.style.left = pos[agent.name].x + 'px';
+        el.style.top = pos[agent.name].y + 'px';
+        fitCanvas();
+      };
+      const up = () => {
+        dragging = null;
+        el.classList.remove('dragging');
+        el.removeEventListener('pointermove', move);
+        el.removeEventListener('pointerup', up);
+        save();
+        fitCanvas();
+      };
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', up);
+    });
+
+    // двойной клик по самому тексту названия — переименовать
+    el.querySelector('.ntext').addEventListener('dblclick', e => {
+      e.stopPropagation();
+      const span = e.target;
+      const a = lastAgents.find(x => x.name === el.dataset.name);
+      if (!a) return;
+      el.dataset.editing = '1';
+      span.contentEditable = 'plaintext-only';
+      span.textContent = a.label || a.sname || '';
+      span.focus();
+      document.getSelection().selectAllChildren(span);
+      const done = async ok => {
+        span.contentEditable = 'false';
+        if (ok) {
+          a.label = span.textContent.trim();  // мгновенно, до ответа сервера
+          span.textContent = a.label || a.sname || a.name;
+          await api('label?tmux=' + encodeURIComponent(a.status === 'parked' ? '' : a.name) +
+                    '&id=' + encodeURIComponent(a.cid || '') +
+                    '&label=' + encodeURIComponent(a.label));
+        }
+        delete el.dataset.editing;
+        poll();
+      };
+      span.onblur = () => done(true);
+      span.onkeydown = ev => {
+        if (ev.key === 'Enter') { ev.preventDefault(); span.blur(); }
+        if (ev.key === 'Escape') { span.onblur = null; done(false); }
+      };
+    });
+
+    // композер внутри карточки: ⏎ — отправить, esc — свернуть
+    const cmpTa = el.querySelector('.cmp-in textarea');
+    const cmpSend = async () => {
+      const text = cmpTa.value.trim();
+      if (!text) return;
+      cmpTa.value = '';
+      replyMorph(el, text);   // мерить до сворачивания композера
+      el.classList.remove('open-in');
+      await api('send?s=' + encodeURIComponent(el.dataset.name) +
+                '&text=' + encodeURIComponent(text));
+      poll();
+    };
+    el.querySelector('.cmp-row .send').onclick = cmpSend;
+    cmpTa.onkeydown = ev => {
+      // отправка как в композере нового агента — ⌘⏎; просто ⏎ — перенос строки
+      if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); cmpSend(); }
+      if (ev.key === 'Escape') { el.classList.remove('open-in'); cmpTa.blur(); }
+    };
+
+    canvas.appendChild(el);
+    if (booted) {
+      el.classList.add('born');
+      setTimeout(() => el.classList.remove('born'), 1300);
+    }
+    return el;
+  }
+
+  function renderCard(el, a) {
+    // только что отправили ответ — пару секунд не даём поллу откатить оптимистичную картинку
+    const justSent = Date.now() - (+el.dataset.sent || 0) < 3000;
+    const status = (justSent && a.status === 'waiting') ? 'working' : a.status;
+    el.classList.toggle('waiting', status === 'waiting');
+    el.classList.toggle('parked', status === 'parked');
+    if (!el.dataset.editing)
+      el.querySelector('.ntext').textContent =
+        a.label || a.sname || (a.status === 'parked' ? a.project : a.name);
+
+    // низ: кнопка слева, справа — только проект и статус
+    const acts = el.querySelector('.acard-actions');
+    const agent = AGENT_LABELS[a.agent] ? a.agent : 'claude';
+    const statusLabel = {
+      working: 'работает', waiting: 'ждёт тебя', idle: 'закончил', parked: 'на паузе',
+    }[status] || status;
+    acts.innerHTML =
+      (status === 'parked'
+        ? '<button class="primary" data-act="resume">продолжить</button>'
+        : '<button class="primary" data-act="open">открыть</button>' +
+          '<button class="icon-sm" data-act="reply" title="написать агенту, не открывая">' +
+          '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>') +
+      '<span class="meta">' +
+      '<span class="proj"></span><span class="st"></span>' +
+      '<span class="meta-tip" aria-hidden="true">' + agentIcon(agent) +
+      '<span class="meta-tip-copy"><span class="meta-tip-main"></span>' +
+      '<span class="meta-tip-time"></span></span></span></span>';
+    el.querySelector('.st').className = 'st ' + status;
+    const proj = el.querySelector('.proj');
+    proj.textContent = a.project;
+    const activity = a.activity
+      ? fmtAge(Math.max(0, Math.floor(Date.now() / 1000 - a.activity))) + ' назад'
+      : '';
+    const activeStatus = status === 'working' ? statusLabel : '';
+    const model = a.model || 'модель не определена';
+    const tip = [a.project, model, activeStatus, activity].filter(Boolean).join(' · ');
+    const meta = el.querySelector('.meta');
+    meta.setAttribute('aria-label', tip);
+    meta.querySelector('.meta-tip-main').textContent =
+      [model, activeStatus].filter(Boolean).join(' · ');
+    meta.querySelector('.meta-tip-time').textContent = activity;
+    const body = el.querySelector('.acard-body');
+    if (dragging !== a.name && !justSent && body.dataset.raw !== a.preview) {
+      // если юзер прокрутил вверх — не дёргаем его; если был внизу — держим низ
+      const stick = body.scrollHeight - body.scrollTop - body.clientHeight < 12;
+      const wasEmpty = !(body.dataset.raw || '').trim();
+      body.dataset.raw = a.preview;
+      if (!a.preview.trim() && status !== 'parked') {
+        // агент ещё ничего не вывел — лоудер вместо пустоты
+        body.innerHTML = '<div class="ldr"><i></i><i></i><i></i><span>агент запускается…</span></div>';
+      } else {
+        renderPreview(body, a.preview);
+        if (wasEmpty && booted) {
+          body.classList.add('fresh');
+          setTimeout(() => body.classList.remove('fresh'), 500);
+        }
+        if (stick) body.scrollTop = body.scrollHeight;
+      }
+    }
+
+    const img = el.querySelector('.hlogo');
+    if (a.logo) {
+      const v = a.path + '@' + a.logo;
+      if (img.dataset.v !== v) {
+        img.dataset.v = v;
+        img.src = '/api/logo?cwd=' + encodeURIComponent(a.path) + '&v=' + a.logo;
+      }
+      img.hidden = false;
+    } else {
+      img.hidden = true;
+    }
+
+  }
+
+  // морф ответа: старый вывод тает, сообщение летит из композера на верх терминала;
+  // серверное превью потом начнётся с этого же "> сообщения" — картинка сшивается сама
+  function replyMorph(card, text) {
+    const body = card.querySelector('.acard-body');
+    const ta = card.querySelector('.cmp-in textarea');
+    const old = document.createElement('div');
+    old.className = 'old';
+    while (body.firstChild) old.appendChild(body.firstChild);
+    body.appendChild(old);
+    requestAnimationFrame(() => old.classList.add('out'));
+
+    const cr = card.getBoundingClientRect(), tr = ta.getBoundingClientRect();
+    const ghost = document.createElement('div');
+    ghost.className = 'gmsg';
+    ghost.textContent = text;
+    card.appendChild(ghost);
+    ghost.style.left = (tr.left - cr.left + 8) + 'px';
+    ghost.style.top = (tr.top - cr.top + 4) + 'px';
+    const dy = (body.getBoundingClientRect().top + 8) - ghost.getBoundingClientRect().top;
+    void ghost.offsetWidth;
+    ghost.style.transform = 'translateY(' + dy + 'px)';
+
+    card.dataset.sent = Date.now();
+    setTimeout(() => {
+      ghost.remove();
+      body.innerHTML = '<span class="umsg grow">' + esc(text) + '</span>';
+      body.dataset.raw = '';
+      card.classList.remove('waiting');
+      const st = card.querySelector('.st');
+      if (st) st.className = 'st working rip';
+    }, 500);
+  }
+
+  // тул-коллы приглушаем, их результаты и диффы сворачиваем в одну строку
+  const DIFF_LINE = /^\s*\d+( [+-] |\s{2,})/;  // "353 +  код" или "354    код"
+  function renderPreview(body, text) {
+    const lines = text.split('\n');
+    let html = '';
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      const t = l.trimStart();
+      if (DIFF_LINE.test(l)) {
+        const block = [l];
+        while (i + 1 < lines.length && DIFF_LINE.test(lines[i + 1])) block.push(lines[++i]);
+        if (block.length > 1) {
+          html += '<details class="tres"><summary><span class="tcall">изменения в файле</span>' +
+                  ' <span class="more">' + block.length + ' строк</span></summary>' +
+                  block.map(esc).join('\n') + '\n</details>';
+        } else {
+          html += esc(l) + '\n';
+        }
+        continue;
+      }
+      if (/^Ran \d+ /.test(t) || /^Running \d+ /.test(t)) {
+        html += '<span class="tcall">' + esc(l) + '</span>\n';
+        continue;
+      }
+      if (t.startsWith('⎿')) {
+        const block = [l];
+        while (i + 1 < lines.length && /^\s{4,}/.test(lines[i + 1]) &&
+               !lines[i + 1].trimStart().startsWith('⎿')) {
+          block.push(lines[++i]);
+        }
+        if (block.length > 1) {
+          html += '<details class="tres"><summary>' + esc(block[0]) +
+                  ' <span class="more">+' + (block.length - 1) + '</span></summary>' +
+                  block.slice(1).map(esc).join('\n') + '\n</details>';
+        } else {
+          html += '<span class="tcall">' + esc(l) + '</span>\n';
+        }
+      } else if (/^⏺ [A-Za-zА-Яа-я_]+\(/.test(t)) {
+        html += '<span class="tcall">' + esc(l) + '</span>\n';
+      } else if (t.startsWith('> ')) {
+        html += '<span class="umsg">' + esc(t.slice(2)) + '</span>';
+      } else {
+        html += esc(l) + '\n';
+      }
+    }
+    body.innerHTML = html;
+  }
+
+  canvas.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const card = btn.closest('.acard');
+    const a = lastAgents.find(x => x.name === card.dataset.name);
+    if (!a) return;
+    const act = btn.dataset.act;
+    if (act === 'open') api('open?s=' + encodeURIComponent(a.name));
+    if (act === 'reply') {
+      card.classList.toggle('open-in');
+      if (card.classList.contains('open-in'))
+        card.querySelector('.cmp-in textarea').focus();
+      return;
+    }
+    if (act === 'remove')
+      await api('remove?tmux=' + encodeURIComponent(a.status === 'parked' ? '' : a.name) +
+                '&id=' + encodeURIComponent(a.cid || ''));
+    if (act === 'resume') {
+      btn.textContent = 'открываю…';
+      await api('resume?id=' + encodeURIComponent(a.cid));
+    }
+    poll();
+  });
+
+  // ---------- попап ----------
+  function showPopover(x, y, html) {
+    popover.innerHTML = html;
+    popover.style.display = 'block';
+    // сначала рисуем, потом меряем — и прижимаем к правому краю окна, если не влезает
+    popover.style.left = '0px';
+    const left = Math.max(10, Math.min(x - 130, window.innerWidth - popover.offsetWidth - 12));
+    popover.style.left = (left + window.scrollX) + 'px';
+    popover.style.top = (y + window.scrollY + 10) + 'px';
+  }
+  function hidePopover() { popover.style.display = 'none'; popover.dataset.owner = ''; }
+  function popoverOpen(owner) {
+    return popover.style.display === 'block' && popover.dataset.owner === owner;
+  }
+  // pointerdown, не click: click приходит после перерисовки попапа,
+  // когда нажатая кнопка уже выкинута из DOM — и попап закрывался сам
+  document.addEventListener('pointerdown', e => {
+    if (!popover.contains(e.target) && !e.target.closest('.top-btn')) hidePopover();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hidePopover(); });
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  // лого проекта в списках выбора; без лого — нейтральная папка
+  function projIcon(p) {
+    return p.logo
+      ? '<img class="po-logo" alt="" src="/api/logo?cwd=' +
+        encodeURIComponent(p.cwd) + '&v=' + p.logo + '">'
+      : '<span class="po-folder"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>';
+  }
+
+  // шаг 1: выбор проекта
+  function plusMenu(x, y) {
+    const rows = projects.map((p, i) =>
+      '<button class="po-item po-sess po-flex" data-i="' + i + '">' +
+      projIcon(p) +
+      '<span class="t">' + esc(p.project) + '</span>' +
+      '<span class="po-x" title="убрать папку из списка">×</span></button>').join('');
+    showPopover(x, y,
+      '<div class="po-head">в каком проекте?</div>' +
+      '<div class="po-list">' + rows + '</div>' +
+      '<button class="po-item" id="poOther">📁 другая папка…</button>');
+    popover.querySelectorAll('.po-sess').forEach(btn => {
+      btn.onclick = async e => {
+        const p = projects[+btn.dataset.i];
+        if (e.target.classList.contains('po-x')) {
+          await api('ws_forget?project=' + encodeURIComponent(p.project));
+          await poll();
+          plusMenu(x, y);   // перерисовать меню без убранной папки
+          return;
+        }
+        projectMenu(p, x, y);
+      };
+    });
+    document.getElementById('poOther').onclick = () => pickFolder(x, y);
+  }
+
+  // шаг 1б: любая папка на маке через нативный Finder-диалог
+  async function pickFolder(x, y) {
+    showPopover(x, y, '<div class="po-empty">выбери папку в открывшемся окне Finder…</div>');
+    const d = await api('pickdir');
+    if (!d || d.cancelled) { hidePopover(); return; }
+    projectMenu(d, x, y);
+  }
+
+  // шаг 2: задача для нового агента или резюм из истории
+  const AGENT_LABELS = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor' };
+
+  function agentIcon(agent) {
+    const label = AGENT_LABELS[agent];
+    return '<span class="agent-logo agent-logo-' + agent + '" role="img" aria-label="' +
+           label + '" title="' + label + '"></span>';
+  }
+
+  // движки: модель/ризонинг и дефолты; cursor добавим позже
+  const ENGINES = {
+    claude: {
+      label: 'Claude',
+      models: [{ id: 'fable', l: 'Fable 5', def: 1 }, { id: 'opus', l: 'Opus 4.8' },
+               { id: 'sonnet', l: 'Sonnet 5' }, { id: 'haiku', l: 'Haiku 4.5' }],
+      levels: ['low', 'medium', 'high', 'xhigh'], defL: 'xhigh',
+    },
+    codex: {
+      label: 'Codex',
+      models: [{ id: 'gpt-5.6-sol', l: 'GPT-5.6 Sol', def: 1 }, { id: 'gpt-5.6-codex', l: 'GPT-5.6 Codex' }],
+      levels: ['minimal', 'low', 'medium', 'high', 'xhigh'], defL: 'high',
+    },
+  };
+
+  const LAST_MODEL_KEY = 'agentboard-last-model';
+
+  function defaultModel(engine) {
+    const models = ENGINES[engine].models;
+    return (models.find(m => m.def) || models[0]).id;
+  }
+
+  function lastModel() {
+    const fallback = { eng: 'claude', model: defaultModel('claude') };
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAST_MODEL_KEY) || 'null');
+      const E = saved && ENGINES[saved.eng];
+      if (!E || (saved.eng === 'codex' && !codexAvailable) ||
+          !E.models.some(m => m.id === saved.model)) return fallback;
+      return { eng: saved.eng, model: saved.model };
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function rememberModel(st) {
+    localStorage.setItem(LAST_MODEL_KEY, JSON.stringify({ eng: st.eng, model: st.model }));
+  }
+
+  function projectMenu(p, x, y) {
+    const last = lastModel();
+    const st = { ...last, level: ENGINES[last.eng].defL };
+    let draft = '';
+
+    function paint() {
+      const E = ENGINES[st.eng];
+      const mLabel = E.models.find(m => m.id === st.model).l;
+      showPopover(x, y,
+        '<div class="po-head">' + esc(p.project) + ' — новый агент</div>' +
+        '<div class="composer">' +
+        '<textarea id="poPrompt" placeholder="Что сделать? Опиши задачу — агент начнёт её в фоне.\n(можно оставить пустым)"></textarea>' +
+        '<div class="c-bar"><div class="pw">' +
+        '<button class="epill" id="cfgPill">' + agentIcon(st.eng) + esc(mLabel) +
+        (E.levels.length ? ' · ' + st.level : '') + '<span class="chev">▲</span></button>' +
+        '<div class="emenu" id="cfgMenu">' +
+        '<div class="m-engines">' + Object.keys(ENGINES)
+          .filter(id => id !== 'codex' || codexAvailable)
+          .map(id => '<button class="eng' + (id === st.eng ? ' on' : '') + '" data-e="' + id + '" title="' +
+                     ENGINES[id].label + '">' + agentIcon(id) + '</button>').join('') + '</div>' +
+        '<div class="m-label">модель</div>' +
+        E.models.map(m =>
+          '<button class="m-item" data-m="' + m.id + '"><span class="ck">' +
+          (m.id === st.model ? '✓' : '') + '</span>' + esc(m.l) +
+          (m.def ? '<span class="mdef">дефолт</span>' : '') + '</button>').join('') +
+        (E.levels.length
+          ? '<div class="m-label">ризонинг</div><div class="m-levels">' +
+            E.levels.map(l => '<button class="m-lvl' + (l === st.level ? ' sel' : '') +
+                              '" data-l="' + l + '">' + l + '</button>').join('') + '</div>'
+          : '') +
+        '</div></div>' +
+        '<button class="send" id="poCreate" title="создать агента (⌘⏎)">↑</button>' +
+        '</div></div>');
+      popover.dataset.owner = 'plus';
+
+      const ta = document.getElementById('poPrompt');
+      const menu = document.getElementById('cfgMenu');
+      ta.value = draft;
+      ta.focus();
+      ta.oninput = () => { draft = ta.value; };
+      ta.onkeydown = ev => {
+        if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); create(); }
+      };
+
+      // открываем меню вверх, но если пилюля близко к верху экрана — вниз
+      function openCfgMenu() {
+        const m = document.getElementById('cfgMenu');
+        const pill = document.getElementById('cfgPill');
+        m.classList.add('open');
+        m.classList.toggle('down', pill.getBoundingClientRect().top < 350);
+      }
+      document.getElementById('cfgPill').onclick = ev => {
+        ev.stopPropagation();
+        if (menu.classList.contains('open')) menu.classList.remove('open');
+        else openCfgMenu();
+      };
+      menu.onclick = ev => ev.stopPropagation();
+      menu.querySelectorAll('.eng').forEach(b => b.onclick = () => {
+        st.eng = b.dataset.e;
+        st.model = defaultModel(st.eng);
+        st.level = ENGINES[st.eng].defL;
+        rememberModel(st);
+        paint(); openCfgMenu();
+      });
+      menu.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
+        st.model = b.dataset.m;
+        rememberModel(st);
+        paint(); openCfgMenu();
+      });
+      menu.querySelectorAll('[data-l]').forEach(b => b.onclick = () => {
+        st.level = b.dataset.l;
+        paint(); openCfgMenu();
+      });
+
+      async function create() {
+        const prompt = ta.value.trim();
+        hidePopover();
+        await api('new?cwd=' + encodeURIComponent(p.cwd) +
+                  '&project=' + encodeURIComponent(p.project) +
+                  '&agent=' + st.eng +
+                  '&model=' + encodeURIComponent(st.model) +
+                  '&effort=' + encodeURIComponent(st.level || '') +
+                  '&prompt=' + encodeURIComponent(prompt));
+        poll();
+      }
+      document.getElementById('poCreate').onclick = create;
+    }
+    paint();
+  }
+
+  async function historyList(project, cwd, x, y) {
+    showPopover(x, y, '<div class="po-empty">загружаю историю…</div>');
+    const hist = await api('history' + (cwd ? '?cwd=' + encodeURIComponent(cwd) : ''));
+    if (!hist || !hist.length) {
+      showPopover(x, y, '<div class="po-empty">нет разговоров за последний месяц</div>');
+      return;
+    }
+    const onBoard = new Set(lastAgents.map(a => a.cid).filter(Boolean));
+    const visible = hist.filter(h => !onBoard.has(h.id));
+    const rows = visible.map((h, i) =>
+      '<button class="po-item po-sess" data-i="' + i + '">' +
+      '<span class="t">' + esc(h.name || h.title) + '</span>' +
+      '<span class="m">' + (cwd ? '' : esc(h.project) + ' · ') +
+        (h.name ? esc(h.title.slice(0, 45)) + ' · ' : '') +
+        fmtAge(h.age) + ' назад</span>' +
+      '</button>').join('');
+    showPopover(x, y,
+      '<div class="po-head">' + esc(project || 'все проекты') + ' — выбери разговор</div>' +
+      '<div class="po-list">' + (rows || '<div class="po-empty">всё уже на доске</div>') + '</div>');
+    popover.querySelectorAll('.po-sess').forEach(btn => {
+      btn.onclick = async () => {
+        const h = visible[+btn.dataset.i];
+        hidePopover();
+        await api('add?id=' + encodeURIComponent(h.id) +
+                  '&cwd=' + encodeURIComponent(h.cwd) +
+                  '&project=' + encodeURIComponent(h.project) +
+                  '&title=' + encodeURIComponent(h.title));
+        poll();
+      };
+    });
+  }
+
+  document.getElementById('topPlus').addEventListener('click', e => {
+    if (popoverOpen('plus')) { hidePopover(); return; }
+    plusMenu(e.clientX, e.clientY);
+    popover.dataset.owner = 'plus';
+  });
+  // история: сначала выбираем проект, потом его разговоры;
+  // «недавно закрытые» раскрываются вложенным списком на месте
+  function historyProjects(x, y) {
+    const rows = projects.map((p, i) =>
+      '<button class="po-item po-sess po-flex" data-i="' + i + '">' +
+      projIcon(p) +
+      '<span class="t">' + esc(p.project) + '</span></button>').join('');
+    showPopover(x, y,
+      '<div class="po-head">история какого проекта?</div>' +
+      '<div class="po-list">' +
+      '<button class="po-item po-sess" id="poClosed">' +
+      '<span class="t"><span class="po-chev">▸</span>недавно закрытые</span></button>' +
+      '<div id="poClosedSub"></div>' + rows + '</div>');
+
+    const cbtn = document.getElementById('poClosed');
+    const sub = document.getElementById('poClosedSub');
+    cbtn.onclick = async () => {
+      if (cbtn.classList.contains('open')) {
+        cbtn.classList.remove('open');
+        sub.innerHTML = '';
+        return;
+      }
+      cbtn.classList.add('open');
+      sub.innerHTML = '<div class="po-sub"><div class="po-empty">загружаю…</div></div>';
+      const list = await api('closed') || [];
+      const onBoard = new Set(lastAgents.map(a => a.cid).filter(Boolean));
+      const vis = list.filter(h => !onBoard.has(h.id));
+      if (!cbtn.classList.contains('open')) return; // успели свернуть
+      sub.innerHTML = '<div class="po-sub">' + (vis.length ? vis.map((h, i) =>
+        '<button class="po-item po-sess" data-c="' + i + '">' +
+        '<span class="t">' + esc(h.name || h.title) + '</span>' +
+        '<span class="m">' + esc(h.project) + ' · ' + fmtAge(h.age) + ' назад</span>' +
+        '</button>').join('')
+        : '<div class="po-empty">пусто</div>') + '</div>';
+      sub.querySelectorAll('[data-c]').forEach(b => b.onclick = async () => {
+        const h = vis[+b.dataset.c];
+        hidePopover();
+        await api('add?id=' + encodeURIComponent(h.id) +
+                  '&cwd=' + encodeURIComponent(h.cwd) +
+                  '&project=' + encodeURIComponent(h.project) +
+                  '&title=' + encodeURIComponent(h.title));
+        poll();
+      });
+    };
+
+    popover.querySelectorAll('.po-sess[data-i]').forEach(btn => {
+      btn.onclick = () => {
+        const p = projects[+btn.dataset.i];
+        historyList(p.project, p.cwd, x, y);
+      };
+    });
+  }
+  document.getElementById('topHist').addEventListener('click', e => {
+    if (popoverOpen('hist')) { hidePopover(); return; }
+    historyProjects(e.clientX, e.clientY);
+    popover.dataset.owner = 'hist';
+  });
+
+  // ---------- опрос ----------
+  let pageVer = null;
+  let codexAvailable = false;
+
+  // ---------- звук «жду тебя»: короткий динь при появлении жёлтого статуса ----------
+  let audioCtx;
+  const prevStatus = {};
+  function waitPing() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const t = audioCtx.currentTime;
+      [[880, 0], [1175, 0.13]].forEach(([f, dt]) => {   // ля–ре: мягкий «динь-динь»
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t + dt);
+        g.gain.exponentialRampToValueAtTime(0.07, t + dt + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.45);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(t + dt); o.stop(t + dt + 0.5);
+      });
+    } catch (e) { /* нет аудио — просто молчим */ }
+  }
+  // браузер разрешает звук только после жеста — разогреваем контекст первым кликом
+  document.addEventListener('pointerdown', () => {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch (e) {}
+  }, { once: true });
+
+  // ---------- онбординг: установка статус-хуков в конфиги CLI ----------
+  document.getElementById('hooksFix').addEventListener('click', async () => {
+    const r = await api('hooks_install') || {};
+    const bar = document.getElementById('hooksbar');
+    if (r.claude && (!codexAvailable || r.codex)) {
+      bar.dataset.done = '1';
+      document.getElementById('hooksbarText').textContent =
+        'готово — перезапусти сессии агентов';
+      document.getElementById('hooksFix').remove();
+      setTimeout(() => { bar.hidden = true; }, 10000);
+    } else {
+      document.getElementById('hooksbarText').textContent =
+        'не вышло: конфиг не читается, смотри README';
+    }
+  });
+
+  async function poll() {
+    const data = await api('agents');
+    if (!data) return;
+    lastAgents = data.agents;
+    projects = data.workspaces;
+    codexAvailable = !!data.codex;
+    if (pageVer === null) pageVer = data.page;
+    else document.getElementById('stale').hidden = (data.page === pageVer);
+
+    document.getElementById('empty').style.display = lastAgents.length ? 'none' : 'flex';
+
+    const alive = new Set(lastAgents.map(a => a.name));
+    for (const name of Object.keys(cards)) {
+      if (!alive.has(name)) { cards[name].remove(); delete cards[name]; }
+    }
+    // позиции ушедших с доски — в мусор: имена tmux переиспользуются,
+    // и новый агент со старым именем иначе падает в чужое старое место
+    let pruned = false;
+    for (const name of Object.keys(pos)) {
+      if (!alive.has(name)) { delete pos[name]; pruned = true; }
+    }
+    if (pruned) save();
+    for (const a of lastAgents) {
+      const el = cards[a.name] || (cards[a.name] = makeCard(a));
+      renderCard(el, a);
+    }
+
+    // динь, когда кто-то только что начал ждать (маскируем как в renderCard)
+    let newWait = false;
+    for (const a of lastAgents) {
+      const el = cards[a.name];
+      const justSent = el && Date.now() - (+el.dataset.sent || 0) < 3000;
+      const st = (justSent && a.status === 'waiting') ? 'working' : a.status;
+      if (st === 'waiting' && booted && prevStatus[a.name] !== 'waiting') newWait = true;
+      prevStatus[a.name] = st;
+    }
+    if (newWait) waitPing();
+
+    // плашка онбординга: хуков нет — доска слепа к статусу «ждёт»
+    const bar = document.getElementById('hooksbar');
+    if (!bar.dataset.done) {
+      const hk = data.hooks || {};
+      bar.hidden = !(!hk.claude || (codexAvailable && !hk.codex));
+    }
+
+    // фильтр по папкам: чипы в баре, скрываем чужие карточки
+    const byProj = {};
+    lastAgents.forEach(a => { byProj[a.project] = (byProj[a.project] || 0) + 1; });
+    if (filter && !byProj[filter]) setFilter('');   // папка опустела — показываем всё
+    for (const a of lastAgents)
+      cards[a.name].style.display = (filter && a.project !== filter) ? 'none' : '';
+    renderChips(byProj);
+
+    const w = lastAgents.filter(a => a.status === 'working').length;
+    const q = lastAgents.filter(a => a.status === 'waiting').length;
+    const gb = document.getElementById('gbadge');
+    gb.hidden = !w;
+    gb.title = w === 1 ? 'работает' : 'работают';
+    document.getElementById('gbadgeText').textContent = w;
+    const wb = document.getElementById('wbadge');
+    wb.hidden = !q;
+    wb.title = q === 1 ? 'ждёт тебя' : 'ждут тебя';
+    document.getElementById('wbadgeText').textContent = q;
+    document.title = (q ? '(' + q + ') ' : '') + 'Agent Board';
+    if (navigator.setAppBadge) {
+      q ? navigator.setAppBadge(q) : navigator.clearAppBadge();
+    }
+
+    fitCanvas();
+    booted = true;
+  }
+
+  // ---------- скины: css-файлы в skins/, грузятся поверх базового стиля ----------
+  const skinLink = document.createElement('link');
+  skinLink.rel = 'stylesheet';
+  document.head.appendChild(skinLink);
+  let skinList = [];
+
+  function applySkin(file) {
+    if (file) skinLink.href = '/skins/' + file + '?v=' + Date.now();
+    else skinLink.removeAttribute('href');
+    localStorage.setItem('agentboard-skin', file || '');
+  }
+
+  function settingsMenu(x, y) {
+    const cur = localStorage.getItem('agentboard-skin') || '';
+    const all = [{ file: '', name: 'Терминал' }, ...skinList];
+    const rows = all.map((s, i) =>
+      '<button class="po-item po-flex" data-i="' + i + '">' +
+      '<span class="po-check">' + (s.file === cur ? '✓' : '') + '</span>' +
+      '<span class="t">' + esc(s.name) + '</span></button>').join('');
+    showPopover(x, y, '<div class="po-head">скин доски</div>' + rows);
+    popover.querySelectorAll('.po-item').forEach(btn => {
+      btn.onclick = () => {
+        applySkin(all[+btn.dataset.i].file);
+        settingsMenu(x, y);   // перерисовать с галочкой
+      };
+    });
+  }
+
+  document.getElementById('topSettings').addEventListener('click', e => {
+    if (popoverOpen('settings')) { hidePopover(); return; }
+    settingsMenu(e.clientX, e.clientY);
+    popover.dataset.owner = 'settings';
+  });
+
+  async function initSkins() {
+    skinList = (await api('skins')) || [];
+    applySkin(localStorage.getItem('agentboard-skin') || '');
+  }
+
+  initSkins();
+  poll();
+  setInterval(poll, 2000);
+</script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+// Agent Board — нативная обёртка: окно с WKWebView поверх localhost:8787.
+// Бейдж на иконке в доке = сколько агентов ждут ответа.
+import Cocoa
+import WebKit
+
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+    var window: NSWindow!
+    var webView: WKWebView!
+    var timer: Timer?
+
+    func applicationDidFinishLaunching(_ n: Notification) {
+        webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered, defer: false)
+        window.title = "Agent Board"
+        window.isReleasedWhenClosed = false  // иначе SIGSEGV при reopen после закрытия окна
+        window.center()
+        window.setFrameAutosaveName("AgentBoardMain")
+        window.contentView = webView
+        window.backgroundColor = NSColor(red: 0.055, green: 0.09, blue: 0.075, alpha: 1)
+        window.makeKeyAndOrderFront(nil)
+
+        load()
+        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            self?.updateBadge()
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func load() {
+        var req = URLRequest(url: URL(string: "http://localhost:8787")!)
+        req.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        webView.load(req)
+    }
+
+    @objc func reloadPage() { load() }
+
+    // сервер ещё поднимается — пробуем снова
+    func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { retry() }
+    func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { retry() }
+    func retry() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.load() }
+    }
+
+    // confirm()/alert() со страницы -> нативные диалоги
+    func webView(_ w: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame f: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let a = NSAlert()
+        a.messageText = message
+        a.addButton(withTitle: "OK")
+        a.addButton(withTitle: "Отмена")
+        completionHandler(a.runModal() == .alertFirstButtonReturn)
+    }
+    func webView(_ w: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame f: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let a = NSAlert()
+        a.messageText = message
+        a.runModal()
+        completionHandler()
+    }
+
+    func updateBadge() {
+        guard let url = URL(string: "http://localhost:8787/api/agents") else { return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let agents = obj["agents"] as? [[String: Any]] else { return }
+            let waiting = agents.filter { ($0["status"] as? String) == "waiting" }.count
+            DispatchQueue.main.async {
+                NSApp.dockTile.badgeLabel = waiting > 0 ? String(waiting) : nil
+            }
+        }.resume()
+    }
+
+    // закрыл окно — приложение живёт в доке; клик по иконке возвращает окно
+    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
+    func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { window.makeKeyAndOrderFront(nil) }
+        return true
+    }
+}
+
+let app = NSApplication.shared
+app.setActivationPolicy(.regular)
+let delegate = AppDelegate()
+app.delegate = delegate
+
+// меню, чтобы работали Cmd+Q / C / V / W
+let mainMenu = NSMenu()
+let appItem = NSMenuItem(); mainMenu.addItem(appItem)
+let appMenu = NSMenu()
+appMenu.addItem(NSMenuItem(title: "Quit Agent Board",
+                           action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+appItem.submenu = appMenu
+let editItem = NSMenuItem(); mainMenu.addItem(editItem)
+let editMenu = NSMenu(title: "Edit")
+editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
+editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+editItem.submenu = editMenu
+let viewItem = NSMenuItem(); mainMenu.addItem(viewItem)
+let viewMenu = NSMenu(title: "View")
+let reloadItem = NSMenuItem(title: "Reload", action: #selector(AppDelegate.reloadPage), keyEquivalent: "r")
+reloadItem.target = delegate
+viewMenu.addItem(reloadItem)
+viewItem.submenu = viewMenu
+let winItem = NSMenuItem(); mainMenu.addItem(winItem)
+let winMenu = NSMenu(title: "Window")
+winMenu.addItem(NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+winMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+winItem.submenu = winMenu
+app.mainMenu = mainMenu
+
+app.run()
