@@ -1423,6 +1423,12 @@ def get_agents():
         # самый свежий, так что подхватывается только осиротевший после форка.
         known = ({c["id"] for c in cards_list if c is not card and c.get("id")} |
                  {c["id"] for c in board["closed"] if c.get("id")})
+        # id чужих карточек появляются с задержкой (свежая сессия ещё без id),
+        # а pid-файлы пишутся мгновенно: сессию, на которую претендует любой
+        # другой живой pid, не заглатываем. Форков в pid-файлах не бывает
+        # (они там не обновляются — в этом и был баг), так что форк подхватится.
+        known |= {r["sessionId"] for r in recs
+                  if r.get("sessionId") and str(r.get("pid")) not in pids}
         cand, _ = newest_session(a["path"], a["created"], known)
         if cand and cand != sid:
             cur_f = find_session_file(a["path"], sid) if sid else ""
