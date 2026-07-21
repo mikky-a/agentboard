@@ -19,6 +19,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -1661,13 +1662,17 @@ def open_in_terminal(name):
         )
         subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10)
         return
-    script = (
-        'tell application "Terminal"\n'
-        f'  do script "tmux attach -t \'{name}\'"\n'
-        "  activate\n"
-        "end tell"
-    )
-    subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10)
+    # do script «печатает» команду в интерактивный zsh, и rc-хуки (oh-my-zsh,
+    # p10k) могут съесть первый символ своим промптом (tmux → mux).
+    # .command-файл Terminal исполняет напрямую, без набора текста и без zshrc.
+    safe = re.sub(r"[^\w.-]", "_", name)
+    path = os.path.join(tempfile.gettempdir(), f"agentboard-{safe}.command")
+    with open(path, "w") as f:
+        f.write(f"#!/bin/sh\nexec {shlex.quote(TMUX)} attach -t {shlex.quote(name)}\n")
+    os.chmod(path, 0o755)
+    subprocess.run(["open", "-a", "Terminal", path], capture_output=True, timeout=10)
+    subprocess.run(["osascript", "-e", 'tell application "Terminal" to activate'],
+                   capture_output=True, timeout=10)
 
 
 @locked
