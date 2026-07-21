@@ -1791,6 +1791,9 @@ def name_tail(name, agent="claude", cwd=""):
 def new_agent(cwd, project, prompt="", agent="claude", model="", effort=""):
     """Создать агента тихо: терминал не открываем, задача — первой командой.
     Плитка появится на доске; откроешь, когда замигает."""
+    # клод резолвит симлинки (/tmp -> /private/tmp) и кладёт лог в папку от
+    # реального пути — храним cwd так же, иначе newest_session ищет не там
+    cwd = os.path.realpath(cwd)
     name = free_name(project or os.path.basename(cwd.rstrip("/")))
     os.makedirs(NAMES_DIR, exist_ok=True)
     pre_trust(agent, cwd)
