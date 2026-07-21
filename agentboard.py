@@ -856,11 +856,16 @@ def turn_preview(cwd, sid, include_trailing=True):
 
     def tool_sig(item):
         # "Bash(tee /tmp/…)" — как в TUI; фронт красит строки "⏺ Имя(…)"
+        name = item.get("name", "tool")
+        if name.startswith("mcp__"):
+            # mcp__claude_ai_Pushkin__list_files -> "Pushkin: list_files"
+            _, server, tool = name.split("__", 2)
+            name = f"{server.split('_')[-1]}: {tool}"
         inp = item.get("input") or {}
-        detail = (inp.get("command") or inp.get("file_path")
+        detail = (inp.get("command") or inp.get("file_path") or inp.get("path")
                   or inp.get("pattern") or inp.get("description") or "")
         detail = " ".join(str(detail).split())[:60]
-        return f'{item.get("name", "tool")}({detail or "…"})'
+        return f'{name}({detail or "…"})'
 
     items = []  # ("u"|"a"|"t", текст)
     for l in lines:
@@ -869,6 +874,8 @@ def turn_preview(cwd, sid, include_trailing=True):
         except ValueError:
             continue
         if r.get("type") == "user":
+            if r.get("isMeta"):
+                continue  # инжекты харнесса (скиллы, преамбулы) — не сообщения юзера
             t = user_text(r.get("message", {}).get("content"))
             if t:
                 items.append(("u", t))
