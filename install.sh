@@ -33,7 +33,13 @@ cat > "$PLIST" <<EOF
 <plist version="1.0"><dict>
   <key>Label</key><string>com.agentboard</string>
   <key>ProgramArguments</key>
-  <array><string>$PY</string><string>$DIR/agentboard.py</string></array>
+  <array><string>$PY</string><string>-u</string><string>$DIR/agentboard.py</string></array>
+  <key>WorkingDirectory</key><string>$DIR</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>/tmp/agentboard.log</string>
@@ -43,7 +49,25 @@ EOF
 
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"
-sleep 1
+
+# ждём, пока сервер реально ответит (sleep 1 не хватало)
+printf "Waiting for the server"
+i=0
+while ! curl -sf -o /dev/null --max-time 1 "http://localhost:8787/api/agents"; do
+  i=$((i+1))
+  if [ "$i" -ge 30 ]; then break; fi
+  printf "."
+  sleep 0.5
+done
+echo ""
+if ! curl -sf -o /dev/null --max-time 1 "http://localhost:8787/api/agents"; then
+  echo "! the server did not come up; log tail:"
+  tail -20 /tmp/agentboard.log 2>/dev/null || true
+  echo "  If the log is empty, macOS may have blocked the login item:"
+  echo "  System Settings → General → Login Items → allow Agent Board,"
+  echo "  or run by hand: $PY $DIR/agentboard.py"
+  echo "  (the app will also try to start the server itself)"
+fi
 
 # Главный сценарий — нативное окно с бейджем в доке; браузер — запасной путь.
 if command -v swiftc >/dev/null; then

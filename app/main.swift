@@ -7,11 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     var window: NSWindow!
     var webView: WKWebView!
     var timer: Timer?
+    var serverProc: Process?
+    var lastSpawn: Date = .distantPast
 
     func applicationDidFinishLaunching(_ n: Notification) {
         webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.navigationDelegate = self
         webView.uiDelegate = self
+        webView.setValue(false, forKey: "drawsBackground")  // не белый, а фон окна
 
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
@@ -25,7 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.backgroundColor = NSColor(red: 0.055, green: 0.09, blue: 0.075, alpha: 1)
         window.makeKeyAndOrderFront(nil)
 
-        load()
+        // пока сервер не ответил — тёмная заглушка вместо белого экрана
+        webView.loadHTMLString(
+            "<body style='background:#0a100d;color:#5f7a6b;font:14px ui-monospace,monospace;" +
+            "display:flex;align-items:center;justify-content:center;height:96vh'>" +
+            "starting the board\u{2026}</body>", baseURL: nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.load() }
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             self?.updateBadge()
         }
@@ -40,11 +48,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     @objc func reloadPage() { load() }
 
-    // сервер ещё поднимается — пробуем снова
+    // сервер ещё поднимается — пробуем снова (и поднимаем его сами, если launchd не смог)
     func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { retry() }
     func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { retry() }
     func retry() {
+        spawnServerIfNeeded()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.load() }
+    }
+
+    // launchd мог не стартовать (заблокирован в Login Items, кривой PATH…) —
+    // тогда сервер запускает само приложение. Если порт занят живым сервером,
+    // сюда не попадаем; дубль умрёт сам на «Address already in use».
+    func spawnServerIfNeeded() {
+        if let p = serverProc, p.isRunning { return }
+        if Date().timeIntervalSince(lastSpawn) < 10 { return }
+        let script = NSString(string: "~/.agentboard/agentboard.py").expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: script) else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["python3", "-u", script]
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "\(NSHomeDirectory())/.local/bin:/opt/homebrew/bin:/usr/local/bin:"
+            + (env["PATH"] ?? "/usr/bin:/bin")
+        p.environment = env
+        try? p.run()
+        serverProc = p
+        lastSpawn = Date()
     }
 
     // confirm()/alert() со страницы -> нативные диалоги
