@@ -4,6 +4,10 @@
 # Кладёт код в ~/.agentboard, ставит автозапуск (launchd) и открывает доску.
 set -e
 
+# всё тело — в функции: при `curl | sh` скрипт течёт в sh по пайпу, и команда,
+# читающая stdin (brew!), проглатывает его остаток; функция парсится целиком
+main() {
+
 DIR="${AGENTBOARD_DIR:-$HOME/.agentboard}"
 REPO="https://github.com/mikky-a/agentboard.git"
 PLIST="$HOME/Library/LaunchAgents/com.agentboard.plist"
@@ -101,3 +105,6 @@ else
   echo "Agent Board is running → http://localhost:8787"
   open "http://localhost:8787" 2>/dev/null || true
 fi
+}
+
+main
