@@ -20,8 +20,11 @@ if ! command -v tmux >/dev/null; then
   [ -z "$BREW" ] && [ -x /opt/homebrew/bin/brew ] && BREW=/opt/homebrew/bin/brew
   [ -z "$BREW" ] && [ -x /usr/local/bin/brew ] && BREW=/usr/local/bin/brew
   if [ -z "$BREW" ]; then
-    echo "Homebrew not found — installing it (needed for tmux; it may ask for your password) ..."
-    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
+    echo "Homebrew not found — installing it (needed for tmux)."
+    echo "It will ask for your macOS password and to press RETURN — that's Homebrew, not us."
+    # ввод с /dev/tty: мы сами запущены через `curl | sh`, а инсталлеру brew нужен
+    # живой терминал (NONINTERACTIVE-режим не умеет спросить пароль sudo)
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/tty || true
     [ -x /opt/homebrew/bin/brew ] && BREW=/opt/homebrew/bin/brew
     [ -z "$BREW" ] && [ -x /usr/local/bin/brew ] && BREW=/usr/local/bin/brew
     [ -n "$BREW" ] || { echo "! Homebrew install failed — install tmux yourself, then re-run this script"; exit 1; }
