@@ -424,8 +424,10 @@ body::before {
 .m-item:hover { background: #d8d1ba; }
 .m-item .ck { color: #b3362a; }
 .m-item .mdef, .m-label { color: #8a642a; }
-.m-lvl { background: #d8d1ba; color: #2b302f; border: 1px solid #8a642a; border-radius: 3px; }
-.m-lvl.sel { background: #b3362a; border-color: #7c241c; color: #f5eeda; }
+.m-more { color: #948a6f; }
+.m-more:hover, .m-row.open .m-more { background: #d8d1ba; color: #2b302f; }
+.m-fly { box-shadow: 4px 4px 0 rgba(0,0,0,0.35); }
+#dim { background: #14100cc4; }
 .send {
   background: #37453a; border: 1px solid #263129; color: #c9e8b0;
   border-radius: 5px; box-shadow: 0 2px 0 #1c231e;

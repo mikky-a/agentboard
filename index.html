@@ -404,6 +404,15 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   #popover .po-empty { padding: 14px 12px; color: #5f7a6b; }
+  /* попап «＋ агент» — по центру, доска под ним притемняется */
+  #dim { position: fixed; inset: 0; z-index: 59; background: rgba(4,8,6,0.55); display: none; }
+  #dim.show { display: block; }
+  #popover.center {
+    position: fixed; left: 50%; top: 46%;
+    transform: translate(-50%, -50%);
+    animation: centerIn 0.18s ease;
+  }
+  @keyframes centerIn { from { opacity: 0; transform: translate(-50%, -50%) scale(0.94); } }
   /* вложенный раздел списка (недавно закрытые) — раскрывается на месте */
   #popover .po-chev {
     display: inline-block; width: 12px; color: #5f7a6b; font-size: 10px;
@@ -449,7 +458,7 @@
   .ob-foot { display: flex; align-items: center; padding: 14px 18px 16px; }
   .ob-foot .m { color: #5f7a6b; font-size: 11px; }
   .ob-foot .top-btn { margin-left: auto; }
-  @media (prefers-reduced-motion: reduce) { .ob-card { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .ob-card, #popover.center, .m-fly { animation: none; } }
 
   /* ---------- окно «агенты и модели»: избранное по каждому агенту ---------- */
   .mw { width: 700px; }
@@ -546,7 +555,7 @@
   .epill svg, .epill .agent-logo { flex: none; }
   .emenu {
     position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 8;
-    min-width: 220px; max-height: 320px; overflow-y: auto;
+    min-width: 220px;
     background: #101713;
     border: 1px solid #35473c; border-radius: 11px;
     box-shadow: 0 -8px 32px rgba(0,0,0,0.6);
@@ -587,13 +596,23 @@
     outline: none; padding: 3px 1px;
   }
   .emenu .m-list { max-height: 250px; overflow-y: auto; }
-  .m-levels { display: flex; gap: 4px; padding: 3px 4px 2px; }
-  .m-lvl {
-    flex: 1; font: inherit; font-size: 11px; text-align: center;
-    padding: 5px 0; border-radius: 6px; cursor: pointer;
-    background: #131c17; color: #7d8d84; border: 1px solid #2c3a32;
+  /* ▸ в строке модели — подменю ризонинга сбоку; клик по самой модели закрывает меню */
+  .m-more {
+    flex: none; width: 22px; height: 22px; margin: -2px -4px -2px auto;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; color: #5f6f66; font-size: 10px;
   }
-  .m-lvl.sel { background: #205c3b; border-color: #2e7a52; color: #eafff2; }
+  .m-item .mdef + .m-more { margin-left: 0; }
+  .m-more:hover, .m-row.open .m-more { background: #24352b; color: #c7d4cc; }
+  .m-fly {
+    bottom: auto; left: calc(100% + 8px); z-index: 9;
+    min-width: 132px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    animation: flyIn 0.12s ease;
+  }
+  .m-fly.left { left: auto; right: calc(100% + 8px); }
+  .m-fly .m-item { font-size: 12px; padding: 6px 9px; }
+  @keyframes flyIn { from { opacity: 0; transform: translateX(-4px); } }
   #popover .po-flex { display: flex; align-items: center; gap: 8px; }
   #popover .po-flex .t { flex: 1; }
   #popover .po-dim { opacity: 0.45; cursor: default; }
@@ -677,6 +696,7 @@
   </div>
 
   <div id="canvas"></div>
+  <div id="dim"></div>
   <div id="popover"></div>
   <div id="onboard"><div class="ob-card">
     <div class="ob-head">Welcome to Agent Board</div>
@@ -857,6 +877,7 @@
 
   const canvas = document.getElementById('canvas');
   const popover = document.getElementById('popover');
+  const dim = document.getElementById('dim');
   const CARD_W = 280, CARD_H = 195;
   const pos = JSON.parse(localStorage.getItem('agentboard-pos-v2') || '{}');
   const cards = {};      // name -> element
@@ -1250,13 +1271,21 @@
   function showPopover(x, y, html) {
     popover.innerHTML = html;
     popover.style.display = 'block';
+    // без координат — по центру экрана, доска притемняется (поток «＋ агент»)
+    const center = x == null;
+    popover.classList.toggle('center', center);
+    dim.classList.toggle('show', center);
+    if (center) { popover.style.left = ''; popover.style.top = ''; return; }
     // сначала рисуем, потом меряем — и прижимаем к правому краю окна, если не влезает
     popover.style.left = '0px';
     const left = Math.max(10, Math.min(x - 130, window.innerWidth - popover.offsetWidth - 12));
     popover.style.left = (left + window.scrollX) + 'px';
     popover.style.top = (y + window.scrollY + 10) + 'px';
   }
-  function hidePopover() { popover.style.display = 'none'; popover.dataset.owner = ''; }
+  function hidePopover() {
+    popover.style.display = 'none'; popover.dataset.owner = '';
+    popover.classList.remove('center'); dim.classList.remove('show');
+  }
   function popoverOpen(owner) {
     return popover.style.display === 'block' && popover.dataset.owner === owner;
   }
@@ -1440,15 +1469,14 @@
           ? '<input class="m-search" id="mSearch" placeholder="' + t('searchModels') + '">'
           : '') +
         '<div class="m-list">' + models.map(m =>
+          '<div class="m-row">' +
           '<button class="m-item" data-m="' + m.id + '"><span class="ck">' +
           (m.id === st.model ? '✓' : '') + '</span>' + esc(m.l || t('default')) +
-          (m.def ? '<span class="mdef">' + t('default') + '</span>' : '') + '</button>').join('') +
+          (m.def ? '<span class="mdef">' + t('default') + '</span>' : '') +
+          (E.levels.length ? '<span class="m-more" title="' + t('reasoning') + '">▸</span>' : '') +
+          '</button></div>').join('') +
         '</div>' +
-        (E.levels.length
-          ? '<div class="m-label">' + t('reasoning') + '</div><div class="m-levels">' +
-            E.levels.map(l => '<button class="m-lvl' + (l === st.level ? ' sel' : '') +
-                              '" data-l="' + l + '">' + l + '</button>').join('') + '</div>'
-          : '') +
+        (E.levels.length ? '<div class="emenu m-fly" id="mFly"></div>' : '') +
         '</div></div>' +
         '<button class="send" id="poCreate" title="' + t('createAgentTitle') + '">↑</button>' +
         '</div></div>');
@@ -1463,12 +1491,13 @@
         if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); create(); }
       };
 
-      // открываем меню вверх, но если пилюля близко к верху экрана — вниз
+      // меню открывается вниз; вверх — только если снизу не хватает места
       function openCfgMenu() {
         const m = document.getElementById('cfgMenu');
         const pill = document.getElementById('cfgPill');
         m.classList.add('open');
-        m.classList.toggle('down', pill.getBoundingClientRect().top < 350);
+        m.classList.toggle('down',
+          window.innerHeight - pill.getBoundingClientRect().bottom > m.offsetHeight + 20);
       }
       document.getElementById('cfgPill').onclick = ev => {
         ev.stopPropagation();
@@ -1476,11 +1505,43 @@
         else openCfgMenu();
       };
       menu.onclick = ev => ev.stopPropagation();
+
+      // подменю ризонинга: один флайаут у активной строки, сбоку от меню
+      const list = menu.querySelector('.m-list');
+      const fly = document.getElementById('mFly');
+      function closeFly() {
+        if (!fly) return;
+        fly.classList.remove('open');
+        menu.querySelectorAll('.m-row.open').forEach(r => r.classList.remove('open'));
+      }
+      function openFly(row, mid) {
+        fly.innerHTML = '<div class="m-label">' + t('reasoning') + '</div>' +
+          E.levels.map(l => '<button class="m-item" data-l="' + l + '"><span class="ck">' +
+            (l === st.level ? '✓' : '') + '</span>' + l +
+            (l === E.defL ? '<span class="mdef">' + t('default') + '</span>' : '') +
+            '</button>').join('');
+        row.classList.add('open');
+        fly.classList.add('open');
+        fly.style.top = (row.offsetTop - list.scrollTop - 5) + 'px';
+        // у правого края экрана подменю раскрывается влево
+        fly.classList.toggle('left',
+          menu.getBoundingClientRect().right + fly.offsetWidth + 14 > window.innerWidth);
+        fly.querySelectorAll('[data-l]').forEach(b => b.onclick = () => {
+          st.model = mid;
+          st.level = b.dataset.l;
+          rememberModel(st);
+          paint();   // выбрали уровень — меню закрылось
+        });
+      }
+      list.onscroll = closeFly;
+
       const ms = document.getElementById('mSearch');
       if (ms) ms.oninput = () => {
         const q = ms.value.toLowerCase();
-        menu.querySelectorAll('.m-item').forEach(b =>
-          b.style.display = b.dataset.m.toLowerCase().includes(q) ? '' : 'none');
+        closeFly();
+        menu.querySelectorAll('.m-row').forEach(r =>
+          r.style.display =
+            r.querySelector('.m-item').dataset.m.toLowerCase().includes(q) ? '' : 'none');
       };
       menu.querySelectorAll('.eng').forEach(b => b.onclick = () => {
         st.eng = b.dataset.e;
@@ -1489,14 +1550,17 @@
         rememberModel(st);
         paint(); openCfgMenu();
       });
-      menu.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
+      menu.querySelectorAll('[data-m]').forEach(b => b.onclick = ev => {
+        if (ev.target.classList.contains('m-more')) {
+          const row = b.closest('.m-row');
+          const was = row.classList.contains('open');
+          closeFly();
+          if (!was) openFly(row, b.dataset.m);
+          return;
+        }
         st.model = b.dataset.m;
         rememberModel(st);
-        paint(); openCfgMenu();
-      });
-      menu.querySelectorAll('[data-l]').forEach(b => b.onclick = () => {
-        st.level = b.dataset.l;
-        paint(); openCfgMenu();
+        paint();   // выбрали модель — меню закрылось
       });
 
       async function create() {
@@ -1547,9 +1611,9 @@
     });
   }
 
-  document.getElementById('topPlus').addEventListener('click', e => {
+  document.getElementById('topPlus').addEventListener('click', () => {
     if (popoverOpen('plus')) { hidePopover(); return; }
-    plusMenu(e.clientX, e.clientY);
+    plusMenu();   // без координат: весь поток «＋ агент» живёт по центру экрана
     popover.dataset.owner = 'plus';
   });
   // история: сначала выбираем проект, потом его разговоры;

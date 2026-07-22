@@ -276,6 +276,17 @@ body::before {
 .composer { background: rgba(255,255,255,0.55); border-color: rgba(0,0,0,0.1); }
 .composer:focus-within { border-color: #0A84FF; }
 .composer textarea { background: transparent; color: #1d1d1f; }
+/* в попапе на текстарию композера действует ещё и общий стиль бланков
+   #popover textarea — гасим его рамку/фон/glow (иначе двоятся голубые обводки),
+   оставляем только линию-разделитель между текстом и панелью; фокус
+   показывает рамка самого композера */
+#popover .composer textarea {
+  background: transparent;
+  /* !important — перебить базовый .composer textarea { border: 0 !important } */
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+  border-radius: 12px 12px 0 0;
+}
+#popover .composer textarea:focus { box-shadow: none; }
 .epill { color: #6e6e73; }
 .epill:hover { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.1); }
 .epill .chev { color: #86868b; }
@@ -293,9 +304,14 @@ body::before {
 .m-item:hover { background: rgba(0,0,0,0.06); }
 .m-item .ck { color: #0A84FF; }
 .m-item .mdef, .m-label { color: #86868b; }
-.m-lvl { background: rgba(0,0,0,0.04); color: #6e6e73; border-color: rgba(0,0,0,0.1); }
-.m-lvl:hover { color: #1d1d1f; }
-.m-lvl.sel { background: #0A84FF; border-color: #0A84FF; color: #fff; }
+.m-more { color: #86868b; }
+.m-more:hover, .m-row.open .m-more { background: rgba(0,0,0,0.08); color: #1d1d1f; }
+.m-fly { box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+#dim {
+  background: rgba(40, 40, 45, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
 .send { background: #0A84FF; border-color: #0A84FF; color: #fff; }
 .send:hover { background: #0071e3; }
 #popover .po-check { color: #0A84FF; }
