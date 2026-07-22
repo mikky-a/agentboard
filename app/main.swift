@@ -98,6 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             env["AGENTBOARD_DATA"] = NSHomeDirectory() + "/.agentboard"
             env["AGENTBOARD_TMUX"] = res + "/tmux/bin/tmux"
             env["AGENTBOARD_TMUX_SOCKET"] = "agentboard"
+            // __pycache__ внутри подписанного бандла сломал бы печать подписи
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
         } else {
             let script = NSString(string: "~/.agentboard/agentboard.py").expandingTildeInPath
             guard FileManager.default.fileExists(atPath: script) else { return }

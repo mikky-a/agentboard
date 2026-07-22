@@ -57,6 +57,12 @@ mkdir -p "$RES/server"
 cp agentboard.py index.html "$RES/server/"
 cp -R skins assets "$RES/server/"
 cp -R "$CACHE/python" "$RES/python"
+# серверу (stdlib, без GUI) не нужны Tcl/Tk и тесты — минус ~10 МБ
+rm -rf "$RES/python/lib/python3.12"/{tkinter,idlelib,turtledemo,test} \
+       "$RES/python/lib/python3.12/lib-dynload/_tkinter"* \
+       "$RES/python/lib"/{itcl,tcl,tk,thread,sqlite,libtcl,libtk}* "$RES/python/lib"/Tk* \
+       "$RES/python/share"
+find "$RES" -name __pycache__ -type d -prune -exec rm -rf {} \;
 cp -R "$CACHE/tmux" "$RES/tmux"
 
 # ---------- подпись ----------
@@ -64,7 +70,8 @@ if [ -n "$SIGN_ID" ]; then
   echo "· codesign ($SIGN_ID)"
   # изнутри наружу: каждый Mach-O в бандле, потом весь .app
   find "$RES/python" "$RES/tmux" -type f \( -perm +111 -o -name "*.dylib" -o -name "*.so" \) | while read -r f; do
-    file "$f" | grep -q Mach-O && codesign --force --options runtime --timestamp -s "$SIGN_ID" "$f"
+    file "$f" | grep -q Mach-O || continue
+    codesign --force --options runtime --timestamp -s "$SIGN_ID" "$f"
   done
   codesign --force --options runtime --timestamp -s "$SIGN_ID" AgentBoard.app
 else
