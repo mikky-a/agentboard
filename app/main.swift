@@ -22,14 +22,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // curl-установка жила на launchd (KeepAlive держит порт 8787) — снимаем её,
     // данные (~/.agentboard/board.json) остаются на месте и подхватываются
     func migrateFromLaunchd() {
+        let fm = FileManager.default
         let plist = NSHomeDirectory() + "/Library/LaunchAgents/com.agentboard.plist"
-        guard FileManager.default.fileExists(atPath: plist) else { return }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        p.arguments = ["unload", plist]
-        try? p.run()
-        p.waitUntilExit()
-        try? FileManager.default.removeItem(atPath: plist)
+        if fm.fileExists(atPath: plist) {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            p.arguments = ["unload", plist]
+            try? p.run()
+            p.waitUntilExit()
+            try? fm.removeItem(atPath: plist)
+        }
+        // прибираем старую curl-обёртку из ~/Applications, чтобы не жило два аппа
+        // (узнаём по отсутствию server/ — сами мы можем стоять и в ~/Applications)
+        let old = NSHomeDirectory() + "/Applications/AgentBoard.app"
+        if old != Bundle.main.bundlePath,
+           fm.fileExists(atPath: old),
+           !fm.fileExists(atPath: old + "/Contents/Resources/server/agentboard.py") {
+            try? fm.removeItem(atPath: old)
+        }
     }
 
     func applicationDidFinishLaunching(_ n: Notification) {
