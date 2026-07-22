@@ -27,7 +27,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 PORT = int(os.environ.get("AGENTBOARD_PORT", "8787"))
 # бандл-версия (.app) приносит свой tmux и живёт на своём сокете,
