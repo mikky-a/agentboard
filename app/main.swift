@@ -10,7 +10,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     var serverProc: Process?
     var lastSpawn: Date = .distantPast
 
+    // DMG-сборка несёт сервер/python/tmux внутри Resources; dev-сборка — пустая
+    // обёртка поверх launchd-сервера из ~/.agentboard (как раньше)
+    var bundledRes: String? {
+        guard let res = Bundle.main.resourcePath,
+              FileManager.default.fileExists(atPath: res + "/server/agentboard.py")
+        else { return nil }
+        return res
+    }
+
+    // curl-установка жила на launchd (KeepAlive держит порт 8787) — снимаем её,
+    // данные (~/.agentboard/board.json) остаются на месте и подхватываются
+    func migrateFromLaunchd() {
+        let plist = NSHomeDirectory() + "/Library/LaunchAgents/com.agentboard.plist"
+        guard FileManager.default.fileExists(atPath: plist) else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        p.arguments = ["unload", plist]
+        try? p.run()
+        p.waitUntilExit()
+        try? FileManager.default.removeItem(atPath: plist)
+    }
+
     func applicationDidFinishLaunching(_ n: Notification) {
+        if bundledRes != nil {
+            migrateFromLaunchd()
+            spawnServerIfNeeded()
+        }
         webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -62,14 +88,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func spawnServerIfNeeded() {
         if let p = serverProc, p.isRunning { return }
         if Date().timeIntervalSince(lastSpawn) < 10 { return }
-        let script = NSString(string: "~/.agentboard/agentboard.py").expandingTildeInPath
-        guard FileManager.default.fileExists(atPath: script) else { return }
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments = ["python3", "-u", script]
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = "\(NSHomeDirectory())/.local/bin:/opt/homebrew/bin:/usr/local/bin:"
             + (env["PATH"] ?? "/usr/bin:/bin")
+        if let res = bundledRes {
+            p.executableURL = URL(fileURLWithPath: res + "/python/bin/python3")
+            p.arguments = ["-u", res + "/server/agentboard.py"]
+            env["AGENTBOARD_DATA"] = NSHomeDirectory() + "/.agentboard"
+            env["AGENTBOARD_TMUX"] = res + "/tmux/bin/tmux"
+            env["AGENTBOARD_TMUX_SOCKET"] = "agentboard"
+        } else {
+            let script = NSString(string: "~/.agentboard/agentboard.py").expandingTildeInPath
+            guard FileManager.default.fileExists(atPath: script) else { return }
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            p.arguments = ["python3", "-u", script]
+        }
         p.environment = env
         try? p.run()
         serverProc = p

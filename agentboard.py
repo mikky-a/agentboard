@@ -30,7 +30,11 @@ from urllib.parse import parse_qs, urlparse
 __version__ = "0.2.0"
 
 PORT = int(os.environ.get("AGENTBOARD_PORT", "8787"))
-TMUX = shutil.which("tmux") or "/opt/homebrew/bin/tmux"
+# бандл-версия (.app) приносит свой tmux и живёт на своём сокете,
+# чтобы не пересекаться с юзерским tmux-сервером (protocol version mismatch)
+TMUX = os.environ.get("AGENTBOARD_TMUX") or shutil.which("tmux") or "/opt/homebrew/bin/tmux"
+TMUX_SOCKET = os.environ.get("AGENTBOARD_TMUX_SOCKET", "")
+TMUX_CMD = [TMUX] + (["-L", TMUX_SOCKET] if TMUX_SOCKET else [])
 # панели tmux наследуют env сервера, а не шелла — задаём PATH явно,
 # иначе внутри агентов не находится `claude` и падает его автообновление
 AGENT_PATH = ":".join([
@@ -48,7 +52,10 @@ NAMES_DIR = f"/tmp/agentboard-{os.getuid()}-names"  # сюда агент пер
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 SESSIONS_DIR = os.path.expanduser("~/.claude/sessions")
 HERE = os.path.dirname(os.path.abspath(__file__))
-BOARD_FILE = os.path.join(HERE, "board.json")
+# в бандле HERE — read-only внутри .app; данные живут отдельно (AGENTBOARD_DATA)
+DATA_DIR = os.environ.get("AGENTBOARD_DATA") or HERE
+os.makedirs(DATA_DIR, exist_ok=True)
+BOARD_FILE = os.path.join(DATA_DIR, "board.json")
 
 # служебный хром TUI Claude Code — не показываем в превью карточки
 CHROME_SNIPPETS = ("⏵⏵", "shift+tab", "esc to interrupt", "/rc active",
@@ -128,7 +135,7 @@ MODEL_LABELS = {
 
 def tmux(*args):
     try:
-        r = subprocess.run([TMUX, *args], capture_output=True, text=True, timeout=5)
+        r = subprocess.run([*TMUX_CMD, *args], capture_output=True, text=True, timeout=5)
         return r.stdout if r.returncode == 0 else ""
     except Exception:
         return ""
@@ -136,7 +143,7 @@ def tmux(*args):
 
 def tmux_ok(*args):
     try:
-        return subprocess.run([TMUX, *args], capture_output=True, timeout=5).returncode == 0
+        return subprocess.run([*TMUX_CMD, *args], capture_output=True, timeout=5).returncode == 0
     except Exception:
         return False
 
@@ -1681,7 +1688,8 @@ def open_in_terminal(name):
     safe = re.sub(r"[^\w.-]", "_", name)
     path = os.path.join(tempfile.gettempdir(), f"agentboard-{safe}.command")
     with open(path, "w") as f:
-        f.write(f"#!/bin/sh\nexec {shlex.quote(TMUX)} attach -t {shlex.quote(name)}\n")
+        f.write("#!/bin/sh\nexec " + " ".join(shlex.quote(a) for a in TMUX_CMD)
+                + f" attach -t {shlex.quote(name)}\n")
     os.chmod(path, 0o755)
     subprocess.run(["open", "-a", "Terminal", path], capture_output=True, timeout=10)
     subprocess.run(["osascript", "-e", 'tell application "Terminal" to activate'],
@@ -2140,6 +2148,11 @@ def update_checker():
 
 def self_update():
     """git pull и перезапуск процесса. launchd/терминал переживают execv."""
+    # бандл (.app) не git-чекаут — ведём юзера за свежим DMG на релизы
+    if not os.path.isdir(os.path.join(HERE, ".git")):
+        subprocess.run(["open", "https://github.com/mikky-a/agentboard/releases/latest"],
+                       capture_output=True, timeout=10)
+        return False
     try:
         r = subprocess.run(["git", "-C", HERE, "pull", "--ff-only"],
                            capture_output=True, text=True, timeout=60)

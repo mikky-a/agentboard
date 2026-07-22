@@ -12,3 +12,5 @@ __pycache__/
 *.agentboard-bak
 
 .DS_Store
+.build-cache/
+AgentBoard.dmg
