@@ -13,7 +13,7 @@ done
 iconutil -c icns app/AppIcon.iconset -o app/AppIcon.icns
 
 echo "· компиляция"
-swiftc -O -swift-version 5 app/main.swift -o app/AgentBoard-bin \
+swiftc -O -swift-version 5 -target arm64-apple-macos13.0 app/main.swift -o app/AgentBoard-bin \
   -framework Cocoa -framework WebKit
 
 echo "· бандл"

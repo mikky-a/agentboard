@@ -16,6 +16,8 @@ LIBEVENT_VER=2.1.13
 UTF8PROC_VER=2.11.3
 CACHE=.build-cache
 mkdir -p "$CACHE"
+# иначе clang прошьёт бинарям минимальной ту macOS, на которой собирали
+export MACOSX_DEPLOYMENT_TARGET=13.0
 
 # ---------- python-рантайм (кэшируется) ----------
 if [ ! -x "$CACHE/python/bin/python3" ]; then
