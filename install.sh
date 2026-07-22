@@ -14,8 +14,22 @@ command -v git >/dev/null || { echo "git is required (xcode-select --install)"; 
 PY="$(command -v python3 || true)"
 [ -n "$PY" ] || { echo "python3 is required"; exit 1; }
 
-if command -v tmux >/dev/null; then :; else
-  echo "! tmux not found — the board needs it: brew install tmux"
+# tmux обязателен — агентам не в чем жить; ставим сами, при нужде вместе с Homebrew
+if ! command -v tmux >/dev/null; then
+  BREW="$(command -v brew || true)"
+  [ -z "$BREW" ] && [ -x /opt/homebrew/bin/brew ] && BREW=/opt/homebrew/bin/brew
+  [ -z "$BREW" ] && [ -x /usr/local/bin/brew ] && BREW=/usr/local/bin/brew
+  if [ -z "$BREW" ]; then
+    echo "Homebrew not found — installing it (needed for tmux; it may ask for your password) ..."
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
+    [ -x /opt/homebrew/bin/brew ] && BREW=/opt/homebrew/bin/brew
+    [ -z "$BREW" ] && [ -x /usr/local/bin/brew ] && BREW=/usr/local/bin/brew
+    [ -n "$BREW" ] || { echo "! Homebrew install failed — install tmux yourself, then re-run this script"; exit 1; }
+    # свежий brew в PATH новых терминалов — как советует его же инсталлер
+    grep -qs 'brew shellenv' "$HOME/.zprofile" || echo "eval \"\$($BREW shellenv)\"" >> "$HOME/.zprofile"
+  fi
+  echo "Installing tmux ..."
+  "$BREW" install tmux || { echo "! tmux install failed — run: $BREW install tmux, then re-run this script"; exit 1; }
 fi
 
 if [ -d "$DIR/.git" ]; then

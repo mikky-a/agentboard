@@ -20,7 +20,7 @@ The UI speaks English and Russian (auto-detected, switchable in settings).
 ## Requirements
 
 - macOS 13+
-- `tmux` (`brew install tmux`)
+- `tmux` — the installer sets it up for you (via Homebrew, installing that too if needed)
 - Any of: [Claude Code](https://claude.com/claude-code), [Codex CLI](https://github.com/openai/codex),
   [Cursor CLI](https://cursor.com/docs/cli), [opencode](https://opencode.ai)
 - Python 3 (system one is fine, stdlib only — no pip packages)
