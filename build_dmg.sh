@@ -85,6 +85,7 @@ ln -s /Applications "$STAGE/Applications"
 rm -f AgentBoard.dmg
 hdiutil create -volname "Agent Board" -srcfolder "$STAGE" -format UDZO -quiet AgentBoard.dmg
 rm -rf "$STAGE"
+[ -n "$SIGN_ID" ] && codesign --force --timestamp -s "$SIGN_ID" AgentBoard.dmg
 
 # ---------- нотаризация (нужен профиль: xcrun notarytool store-credentials) ----------
 if [ -n "$NOTARY_PROFILE" ]; then

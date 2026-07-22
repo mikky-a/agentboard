@@ -19,26 +19,35 @@ The UI speaks English and Russian (auto-detected, switchable in settings).
 
 ## Requirements
 
-- macOS 13+
-- `tmux` — the installer sets it up for you (via Homebrew, installing that too if needed)
+- macOS 13+ (Apple Silicon)
 - Any of: [Claude Code](https://claude.com/claude-code), [Codex CLI](https://github.com/openai/codex),
   [Cursor CLI](https://cursor.com/docs/cli), [opencode](https://opencode.ai)
-- Python 3 (system one is fine, stdlib only — no pip packages)
+
+That's it — the app is self-contained (bundles its own Python runtime and tmux),
+signed and notarized. No Homebrew, no Xcode tools.
 
 ## Quickstart
+
+**[Download AgentBoard.dmg](https://github.com/mikky-a/agentboard/releases/latest/download/AgentBoard.dmg)**,
+drag to Applications, open. The dock icon shows a badge with how many agents
+are waiting for you.
+
+<details>
+<summary>Alternative: install from source (curl | sh)</summary>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mikky-a/agentboard/main/install.sh | sh
 ```
 
 This clones the repo into `~/.agentboard`, sets up start-on-login (launchd),
-builds **AgentBoard.app** (native window, dock icon with a badge showing how
-many agents are waiting for you) into `~/Applications` and opens it. Drag it
-to the Dock — that's the intended way to live with the board.
+installs tmux if missing (via Homebrew), builds **AgentBoard.app** with your
+Xcode Command Line Tools into `~/Applications` and opens it; without `swiftc`
+it falls back to the browser at `http://localhost:8787`. Updates ride on
+`git pull` — re-run the same command anytime.
 
-No Xcode Command Line Tools (`swiftc`)? The script falls back to the browser
-at `http://localhost:8787` — the whole UI works there too. Prefer to run
-things by hand?
+</details>
+
+Prefer to run things by hand?
 
 ```bash
 git clone https://github.com/mikky-a/agentboard.git
