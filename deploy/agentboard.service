@@ -1,0 +1,25 @@
+# Agent Board as a system service. Replace YOUR_USER (3 places), then:
+#   sudo cp deploy/agentboard.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now agentboard
+[Unit]
+Description=Agent Board
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/agentboard
+EnvironmentFile=/etc/agentboard.env
+# agents need claude / codex on PATH; ~/.local/bin is where Claude Code installs itself
+Environment=PATH=/home/YOUR_USER/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 -u agentboard.py
+Restart=always
+RestartSec=3
+# The tmux server with every agent lives in this service's cgroup. A restart
+# (an update, or needrestart after unattended-upgrades) must stop only the
+# board process. Never change this to the default, or every restart kills
+# every running agent.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

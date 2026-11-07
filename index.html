@@ -488,12 +488,12 @@
   @keyframes subIn { from { opacity: 0; transform: translateY(-3px); } }
 
   /* ---------- онбординг и окно моделей: оверлеи ---------- */
-  #onboard, #modelsWin {
+  #onboard, #modelsWin, #login, #dialog {
     position: fixed; inset: 0; z-index: 80;
     display: none; align-items: center; justify-content: center;
     background: rgba(4,8,6,0.72);
   }
-  #onboard.show, #modelsWin.show { display: flex; }
+  #onboard.show, #modelsWin.show, #login.show, #dialog.show { display: flex; }
   .ob-card {
     width: 420px; max-width: calc(100vw - 40px);
     background: #101713; border: 1px solid #35473c; border-radius: 12px;
@@ -724,6 +724,87 @@
     background: #16241c; border: 1px solid #2c3a32;
     border-radius: 6px; padding: 2px 8px; color: #9fc7ae;
   }
+
+  /* ---------- облако: значок узла на карточке и в списках ---------- */
+  /* тот же фосфор, но голубой: агент работает «не здесь» */
+  .hostb {
+    flex: none; display: inline-flex; align-items: center;
+    color: #6fb7c9;
+    filter: drop-shadow(0 0 4px rgba(111,183,201,0.5));
+  }
+  .hostb svg { display: block; }
+  /* узел не отвечает — на доске его последний снимок */
+  .hostb.off { color: #e8b44b; filter: none; }
+  #popover .po-form .m-search { width: 100%; margin: 0; font-size: 12.5px; padding: 5px 1px; }
+  #popover .po-form .po-row { align-items: center; }
+  #popover .po-form .po-empty { padding: 0; font-size: 11px; }
+
+  /* ---------- вход по токену (доска-узел в интернете) ---------- */
+  #login { z-index: 90; }
+  #login .m-search { width: calc(100% - 36px); margin: 2px 18px 0; font-size: 13px; padding: 7px 1px; }
+
+  /* ---------- диалог сессии: карточка во весь рост ---------- */
+  /* в вебе и на телефоне терминала нет — разговор открывается этим окном.
+     Собран из классов карточки, поэтому скины красят его сами */
+  #dialog { z-index: 70; }
+  .acard.dlg, .acard.dlg:active {
+    position: relative; left: auto; top: auto;
+    width: 760px; max-width: calc(100vw - 40px); height: 84vh;
+    display: flex; flex-direction: column;
+    cursor: default; touch-action: auto;
+    background: #0e1411;   /* глухой фон: сквозь окно для чтения доска не просвечивает */
+    animation: growIn 0.18s ease; transform-origin: center;
+  }
+  .acard.dlg .acard-head { flex: none; padding: 9px 10px 9px 12px; }
+  .acard.dlg .ntext { cursor: default; font-size: 13px; }
+  .acard.dlg .acard-body { flex: 1 1 auto; max-height: none; font-size: 12px; padding: 12px 14px; }
+  /* экран tmux как есть: моноширинная сетка, длинные строки листаются вбок */
+  .acard.dlg .acard-body.pane { white-space: pre; overflow-x: auto; word-break: normal; }
+  .acard.dlg .acard-actions { flex: none; }
+  .acard.dlg #dlgView { margin-left: auto; }
+  .acard.dlg .cmp-in { flex: none; max-height: none; overflow: visible; opacity: 1; }
+  .acard.dlg .cmp-in textarea { min-height: 54px; }
+  @media (prefers-reduced-motion: reduce) { .acard.dlg { animation: none; } }
+
+  /* ---------- лента: на узком экране доска складывается в список ---------- */
+  /* порядок задаёт js (style.order): ждут тебя → работают → закончили → на паузе */
+  @media (max-width: 720px) {
+    body { overflow-x: hidden; }
+    .topbar { gap: 8px; padding: 8px 10px; }
+    .topbar .sp, .ver { display: none; }
+    .chips { flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip { flex: none; }
+    #stale { font-size: 10px !important; }
+    #canvas {
+      display: flex; flex-direction: column; gap: 10px;
+      width: auto !important; height: auto !important;
+      min-width: 0; min-height: 0;
+      padding: 58px 10px 28px;
+    }
+    .acard {
+      position: relative; left: auto !important; top: auto !important;
+      width: auto; cursor: default; touch-action: auto;
+    }
+    .acard:active { cursor: default; }
+    .acard-body { max-height: 190px; font-size: 12px; }
+    .acard-actions button { padding: 6px 14px; font-size: 12px; }
+    .acard-actions .icon-sm { width: 32px; height: 30px; }
+    .cmp-row .kbd { visibility: hidden; }
+    /* iOS зумит страницу при фокусе в поле мельче 16px */
+    textarea, input { font-size: 16px !important; }
+    #popover { max-width: calc(100vw - 20px); }
+    #popover.center { width: calc(100vw - 20px); }
+    .composer, #popover .composer { width: auto; max-width: none; }
+    .mw-cols { flex-direction: column; }
+    .mw-rail { width: auto; border-right: 0; }
+    #dialog { align-items: flex-start; }
+    .acard.dlg, .acard.dlg:active {
+      width: 100vw; max-width: none; height: 100dvh;
+      border-radius: 0; border-width: 0;
+    }
+    .acard.dlg .acard-body { font-size: 13px; }
+  }
 </style>
 </head>
 <body>
@@ -770,6 +851,28 @@
       <div class="mw-rail" id="mwRail"></div>
       <div class="mw-pane" id="mwPane"></div>
     </div>
+  </div></div>
+
+  <div id="login"><div class="ob-card">
+    <div class="ob-head">Agent Board</div>
+    <div class="ob-sub" id="loginSub"></div>
+    <input class="m-search" id="loginToken" type="password" autocomplete="current-password">
+    <div class="ob-foot"><span class="m" id="loginHint"></span><button class="top-btn" id="loginGo"></button></div>
+  </div></div>
+
+  <div id="dialog"><div class="acard dlg open-in">
+    <div class="acard-head"><span class="st"></span>
+      <span class="name"><span class="ntext"></span></span>
+      <span class="proj"></span><button class="xbtn" id="dlgClose">×</button></div>
+    <div class="acard-body" id="dlgBody"></div>
+    <div class="acard-actions">
+      <button data-k="esc">esc</button><button data-k="up">↑</button><button data-k="down">↓</button><button data-k="enter">⏎</button>
+      <button id="dlgView"></button>
+    </div>
+    <div class="cmp-in"><div class="composer">
+      <textarea rows="2"></textarea>
+      <div class="cmp-row"><span class="kbd"></span><button class="send">↑</button></div>
+    </div></div>
   </div></div>
 
   <div id="empty">
@@ -841,6 +944,16 @@
       noFavs: 'empty — the picker shows the full catalog',
       refine: 'showing part of the list — type to narrow down',
       removeFav: 'remove from favorites',
+      offline: 'no connection, last snapshot',
+      folderOn: '☁️ folder on', serverFolder: 'folder on the server',
+      gitUrl: 'git URL — clone a repo here', clone: 'clone', cloning: 'cloning…',
+      cloneFailed: 'clone failed',
+      cloud: 'cloud', cloudConnect: 'connect a server',
+      cloudToken: 'access token', cloudSsh: 'ssh target for the terminal, e.g. agent@host (optional)',
+      cloudOff: 'disconnect', cloudBad: 'no answer — check the address and token',
+      loginSub: 'This board runs in the cloud. Enter the access token.',
+      loginToken: 'access token', loginGo: 'Sign in', loginBad: 'wrong token',
+      dlgScreen: 'screen', dlgChat: 'chat',
     },
     ru: {
       stale: 'страница устарела — нажми Cmd+R',
@@ -900,6 +1013,16 @@
       noFavs: 'пусто — в пикере весь каталог',
       refine: 'показана часть списка — уточни запрос',
       removeFav: 'убрать из избранного',
+      offline: 'нет связи, последний снимок',
+      folderOn: '☁️ папка на', serverFolder: 'папка на сервере',
+      gitUrl: 'git URL — склонировать репозиторий сюда', clone: 'клонировать', cloning: 'клонирую…',
+      cloneFailed: 'не склонировалось',
+      cloud: 'облако', cloudConnect: 'подключить сервер',
+      cloudToken: 'токен доступа', cloudSsh: 'ssh для терминала, например agent@host (необязательно)',
+      cloudOff: 'отключить', cloudBad: 'нет ответа — проверь адрес и токен',
+      loginSub: 'Эта доска работает в облаке. Введи токен доступа.',
+      loginToken: 'токен доступа', loginGo: 'Войти', loginBad: 'токен не подошёл',
+      dlgScreen: 'экран', dlgChat: 'диалог',
     },
   };
   let LANG = localStorage.getItem('agentboard-lang') || (navigator.language && navigator.language.startsWith('ru') ? 'ru' : 'en');
@@ -973,13 +1096,38 @@
     });
   }
 
-  const api = p => fetch('/api/' + p).then(r => r.json()).catch(() => null);
+  // 401 — доска-узел просит войти: показываем окно с полем токена
+  // X-AB — свой заголовок: по нему сервер отличает доску от чужой страницы,
+  // которая дёргает /api ссылкой или картинкой с нашей cookie
+  const AB = { headers: { 'X-AB': '1' } };
+  const api = p => fetch('/api/' + p, AB).then(r => {
+    if (r.status === 401) { showLogin(); return null; }
+    return r.json();
+  }).catch(() => null);
+  // облако: карточки и папки других досок-узлов приходят с полем host,
+  // действие над ними уходит с &host= — сервер перешлёт его узлу
+  let remotes = [];       // [{name, url, ssh, ok, loaded, claude, codex, …}]
+  let headless = false;   // эта доска сама на сервере: ни терминала, ни Finder
+  const H = a => a && a.host ? '&host=' + encodeURIComponent(a.host) : '';
+  const agentOf = name => lastAgents.find(a => a.name === name);
+  const feed = () => matchMedia('(max-width: 720px)').matches;   // телефон: лента вместо доски
+  const CLOUD_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>';
+  function hostBadge(host) {
+    const r = remotes.find(r => r.name === host);
+    const off = r && !r.ok;
+    return '<span class="hostb' + (off ? ' off' : '') + '" title="' + esc(host) +
+           (off ? ' — ' + t('offline') : '') + '">' + CLOUD_SVG + '</span>';
+  }
 
   // ошибки страницы — в лог сервера, чтобы их было видно при отладке
   window.onerror = (msg, src, line, col) => {
-    fetch('/api/jslog?msg=' + encodeURIComponent(msg + ' @' + line + ':' + col));
+    fetch('/api/jslog?msg=' + encodeURIComponent(msg + ' @' + line + ':' + col), AB);
   };
   function save() { localStorage.setItem('agentboard-pos-v2', JSON.stringify(pos)); }
+  // tmux-имя меняется после рестарта, id разговора — нет.
+  // Поэтому живые и припаркованные состояния одной карточки делят координаты.
+  const posKey = a => a.cid ? 'id:' + a.cid : 'tmux:' + a.name;
+  const cardPos = a => pos[posKey(a)];
 
   function fmtAge(s) {
     if (s < 60) return s + t('unitS');
@@ -996,23 +1144,23 @@
     let y = yStart;
     for (let k = 0; k < 50; k++) {
       const hit = lastAgents.filter(a =>
-        a.name !== self && pos[a.name] &&
-        Math.abs(pos[a.name].x - x) < CARD_W + 16 &&
-        y < pos[a.name].y + cardH(a) + 16 && pos[a.name].y < y + CARD_H + 16);
+        a.name !== self && cardPos(a) &&
+        Math.abs(cardPos(a).x - x) < CARD_W + 16 &&
+        y < cardPos(a).y + cardH(a) + 16 && cardPos(a).y < y + CARD_H + 16);
       if (!hit.length) return y;
-      y = Math.max(...hit.map(a => pos[a.name].y + cardH(a))) + 24;
+      y = Math.max(...hit.map(a => cardPos(a).y + cardH(a))) + 24;
     }
     return y;
   }
 
   function defaultPos(agent) {
-    const placed = lastAgents.filter(a => a.name !== agent.name && pos[a.name]);
+    const placed = lastAgents.filter(a => a.name !== agent.name && cardPos(a));
     if (!placed.length) return { x: 40, y: 90 };
     // якорь — последняя созданная карточка этого проекта, иначе последняя вообще
     const sib = placed.filter(a => a.project === agent.project);
     const anchor = (sib.length ? sib : placed).reduce((m, a) =>
-      (pos[a.name].t || 0) > (pos[m.name].t || 0) ? a : m);
-    const p = pos[anchor.name];
+      (cardPos(a).t || 0) > (cardPos(m).t || 0) ? a : m);
+    const p = cardPos(anchor);
     const right = { x: p.x + CARD_W + 24, y: dropY(p.x + CARD_W + 24, p.y, agent.name) };
     if (right.y === p.y) return right;                     // свободно прямо справа
     const under = p.y + cardH(anchor) + 24;
@@ -1028,7 +1176,7 @@
   function fitCanvas() {
     let w = 6000, h = 4000;
     for (const a of lastAgents) {
-      const p = pos[a.name];
+      const p = cardPos(a);
       if (!p) continue;
       const el = cards[a.name];
       w = Math.max(w, p.x + CARD_W + 800);
@@ -1054,8 +1202,11 @@
       '<div class="cmp-row"><span class="kbd">' + t('sendHint') + '</span>' +
       '<button class="send" title="' + t('sendTitle') + '">↑</button></div></div></div>';
 
-    const p = pos[agent.name] || { ...defaultPos(agent), t: Date.now() };
-    pos[agent.name] = p;
+    const key = posKey(agent);
+    // битые координаты (null/NaN из старых багов) лечим переразмещением
+    let p = pos[key];
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) p = { ...defaultPos(agent), t: Date.now() };
+    pos[key] = p;
     save();
     el.style.left = p.x + 'px';
     el.style.top = p.y + 'px';
@@ -1064,20 +1215,26 @@
       // тело скроллится, текст названия — для dblclick; остальное таскает
       if (e.target.tagName === 'BUTTON' || e.target.classList.contains('ntext')
           || e.target.closest('.acard-body') || e.target.closest('.cmp-in')) return;
+      if (feed()) return;   // в ленте карточки стоят списком — палец листает страницу
       e.preventDefault();
       dragging = agent.name;
       el.classList.add('dragging');
       el.setPointerCapture(e.pointerId);
       const startX = e.clientX, startY = e.clientY;
-      const orig = { ...pos[agent.name] };
+      const current = lastAgents.find(a => a.name === el.dataset.name) || agent;
+      const key = posKey(current);
+      // записи может не быть (ключ сменился между поллами) — берём фактическое место
+      const orig = pos[key] && Number.isFinite(pos[key].x)
+        ? { ...pos[key] }
+        : { x: el.offsetLeft, y: el.offsetTop, t: Date.now() };
       const move = ev => {
-        pos[agent.name] = {
+        pos[key] = {
           ...orig,
           x: Math.max(10, orig.x + ev.clientX - startX),
           y: Math.max(60, orig.y + ev.clientY - startY),
         };
-        el.style.left = pos[agent.name].x + 'px';
-        el.style.top = pos[agent.name].y + 'px';
+        el.style.left = pos[key].x + 'px';
+        el.style.top = pos[key].y + 'px';
         fitCanvas();
       };
       const up = () => {
@@ -1110,7 +1267,7 @@
           span.textContent = a.label || a.sname || a.name;
           await api('label?tmux=' + encodeURIComponent(a.status === 'parked' ? '' : a.name) +
                     '&id=' + encodeURIComponent(a.cid || '') +
-                    '&label=' + encodeURIComponent(a.label));
+                    '&label=' + encodeURIComponent(a.label) + H(a));
         }
         delete el.dataset.editing;
         poll();
@@ -1131,7 +1288,7 @@
       replyMorph(el, text);   // мерить до сворачивания композера
       el.classList.remove('open-in');
       await api('send?s=' + encodeURIComponent(el.dataset.name) +
-                '&text=' + encodeURIComponent(text));
+                '&text=' + encodeURIComponent(text) + H(agentOf(el.dataset.name)));
       poll();
     };
     el.querySelector('.cmp-row .send').onclick = cmpSend;
@@ -1163,6 +1320,10 @@
     const status = (justSent && a.status === 'waiting') ? 'working' : a.status;
     el.classList.toggle('waiting', status === 'waiting');
     el.classList.toggle('parked', status === 'parked');
+    // место в ленте (телефон): группа по статусу, внутри — свежие выше
+    const rank = { waiting: 0, working: 1, idle: 2, parked: 3 }[status] ?? 2;
+    const ageMin = a.activity ? Math.max(0, Math.floor((Date.now() / 1000 - a.activity) / 60)) : 999999;
+    el.style.order = rank * 1000000 + Math.min(999999, ageMin);
     if (!el.dataset.editing)
       el.querySelector('.ntext').textContent =
         a.label || a.sname || (a.status === 'parked' ? a.project : a.name);
@@ -1179,7 +1340,7 @@
         : '<button class="primary" data-act="open">' + t('open') + '</button>' +
           '<button class="icon-sm" data-act="reply" title="' + t('replyTitle') + '">' +
           '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>') +
-      '<span class="meta">' + agentIcon(agent) +
+      '<span class="meta">' + agentIcon(agent) + (a.host ? hostBadge(a.host) : '') +
       '<span class="proj"></span><span class="st"></span>' +
       '<span class="meta-tip" aria-hidden="true">' + agentIcon(agent) +
       '<span class="meta-tip-copy"><span class="meta-tip-main"></span>' +
@@ -1192,11 +1353,11 @@
       : '';
     const activeStatus = status === 'working' ? statusLabel : '';
     const model = a.model || t('modelUnknown');
-    const tip = [a.project, model, activeStatus, activity].filter(Boolean).join(' · ');
+    const tip = [a.project, a.host, model, activeStatus, activity].filter(Boolean).join(' · ');
     const meta = el.querySelector('.meta');
     meta.setAttribute('aria-label', tip);
     meta.querySelector('.meta-tip-main').textContent =
-      [model, activeStatus].filter(Boolean).join(' · ');
+      [a.host, model, activeStatus].filter(Boolean).join(' · ');
     meta.querySelector('.meta-tip-time').textContent = activity;
     const body = el.querySelector('.acard-body');
     if (dragging !== a.name && !justSent && body.dataset.raw !== a.preview) {
@@ -1222,7 +1383,7 @@
       const v = a.path + '@' + a.logo;
       if (img.dataset.v !== v) {
         img.dataset.v = v;
-        img.src = '/api/logo?cwd=' + encodeURIComponent(a.path) + '&v=' + a.logo;
+        img.src = '/api/logo?cwd=' + encodeURIComponent(a.path) + '&v=' + a.logo + H(a);
       }
       img.hidden = false;
     } else {
@@ -1271,7 +1432,7 @@
     let html = '';
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      const t = l.trimStart();
+      const s = l.trimStart();   // не t: t() — перевод строк
       if (DIFF_LINE.test(l)) {
         const block = [l];
         while (i + 1 < lines.length && DIFF_LINE.test(lines[i + 1])) block.push(lines[++i]);
@@ -1284,11 +1445,11 @@
         }
         continue;
       }
-      if (/^Ran \d+ /.test(t) || /^Running \d+ /.test(t)) {
+      if (/^Ran \d+ /.test(s) || /^Running \d+ /.test(s)) {
         html += '<span class="tcall">' + esc(l) + '</span>\n';
         continue;
       }
-      if (t.startsWith('⎿')) {
+      if (s.startsWith('⎿')) {
         const block = [l];
         while (i + 1 < lines.length && /^\s{4,}/.test(lines[i + 1]) &&
                !lines[i + 1].trimStart().startsWith('⎿')) {
@@ -1301,10 +1462,10 @@
         } else {
           html += '<span class="tcall">' + esc(l) + '</span>\n';
         }
-      } else if (/^⏺ [A-Za-zА-Яа-я_]+\(/.test(t)) {
+      } else if (/^⏺ [A-Za-zА-Яа-я_]+\(/.test(s)) {
         html += '<span class="tcall">' + esc(l) + '</span>\n';
-      } else if (t.startsWith('> ')) {
-        html += '<span class="umsg">' + esc(t.slice(2)) + '</span>';
+      } else if (s.startsWith('> ')) {
+        html += '<span class="umsg">' + esc(s.slice(2)) + '</span>';
       } else {
         html += esc(l) + '\n';
       }
@@ -1319,7 +1480,13 @@
     const a = lastAgents.find(x => x.name === card.dataset.name);
     if (!a) return;
     const act = btn.dataset.act;
-    if (act === 'open') api('open?s=' + encodeURIComponent(a.name));
+    if (act === 'open') {
+      // терминал есть только на маке (к узлу — по ssh, если он задан);
+      // иначе разговор открывается окном диалога
+      const r = a.host && remotes.find(r => r.name === a.host);
+      if (headless || (a.host && !(r && r.ssh))) openDialog(a.name);
+      else api('open?s=' + encodeURIComponent(a.name) + H(a));
+    }
     if (act === 'reply') {
       card.classList.toggle('open-in');
       if (card.classList.contains('open-in'))
@@ -1328,10 +1495,10 @@
     }
     if (act === 'remove')
       await api('remove?tmux=' + encodeURIComponent(a.status === 'parked' ? '' : a.name) +
-                '&id=' + encodeURIComponent(a.cid || ''));
+                '&id=' + encodeURIComponent(a.cid || '') + H(a));
     if (act === 'resume') {
       btn.textContent = t('opening');
-      await api('resume?id=' + encodeURIComponent(a.cid));
+      await api('resume?id=' + encodeURIComponent(a.cid) + H(a));
     }
     poll();
   });
@@ -1363,7 +1530,11 @@
   document.addEventListener('pointerdown', e => {
     if (!popover.contains(e.target) && !e.target.closest('.top-btn')) hidePopover();
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') hidePopover(); });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (popover.style.display === 'block') hidePopover();
+    else closeDialog();
+  });
 
   function esc(s) {
     return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -1373,7 +1544,7 @@
   function projIcon(p) {
     return p.logo
       ? '<img class="po-logo" alt="" src="/api/logo?cwd=' +
-        encodeURIComponent(p.cwd) + '&v=' + p.logo + '">'
+        encodeURIComponent(p.cwd) + '&v=' + p.logo + H(p) + '">'
       : '<span class="po-folder"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>';
   }
 
@@ -1382,17 +1553,22 @@
     const rows = projects.map((p, i) =>
       '<button class="po-item po-sess po-flex" data-i="' + i + '">' +
       projIcon(p) +
-      '<span class="t">' + esc(p.project) + '</span>' +
+      '<span class="t">' + esc(p.project) + '</span>' + (p.host ? hostBadge(p.host) : '') +
       '<span class="po-x" title="' + t('removeFolderTitle') + '">×</span></button>').join('');
+    // новая папка: на маке — Finder; на узле — список папок сервера или git clone.
+    // Доска на сервере (headless) сама и есть узел: host пустой
+    const hosts = headless ? [''] : remotes.filter(r => r.ok).map(r => r.name);
     showPopover(x, y,
       '<div class="po-head">' + t('whichProject') + '</div>' +
       '<div class="po-list">' + rows + '</div>' +
-      '<button class="po-item" id="poOther">' + t('otherFolder') + '</button>');
+      (headless ? '' : '<button class="po-item" id="poOther">' + t('otherFolder') + '</button>') +
+      hosts.map(h => '<button class="po-item po-srv" data-h="' + esc(h) + '">' +
+        (h ? t('folderOn') + ' ' + esc(h) + '…' : t('otherFolder')) + '</button>').join(''));
     popover.querySelectorAll('.po-sess').forEach(btn => {
       btn.onclick = async e => {
         const p = projects[+btn.dataset.i];
         if (e.target.classList.contains('po-x')) {
-          await api('ws_forget?project=' + encodeURIComponent(p.project));
+          await api('ws_forget?project=' + encodeURIComponent(p.project) + H(p));
           await poll();
           plusMenu(x, y);   // перерисовать меню без убранной папки
           return;
@@ -1400,7 +1576,37 @@
         projectMenu(p, x, y);
       };
     });
-    document.getElementById('poOther').onclick = () => pickFolder(x, y);
+    if (!headless) document.getElementById('poOther').onclick = () => pickFolder(x, y);
+    popover.querySelectorAll('.po-srv').forEach(btn =>
+      btn.onclick = () => serverFolder(btn.dataset.h, x, y));
+  }
+
+  // шаг 1в: папка на узле — Finder туда не дотянется
+  async function serverFolder(host, x, y) {
+    const hq = host ? '&host=' + encodeURIComponent(host) : '';
+    showPopover(x, y, '<div class="po-empty">' + t('loading') + '</div>');
+    const dirs = await api('dirs?' + hq) || [];
+    if (popover.dataset.owner !== 'plus') return;   // меню успели закрыть
+    showPopover(x, y,
+      '<div class="po-head">' + t('serverFolder') + '</div>' +
+      '<div class="po-list">' + (dirs.map((d, i) =>
+        '<button class="po-item po-sess po-flex" data-i="' + i + '">' + projIcon(d) +
+        '<span class="t">' + esc(d.project) + '</span></button>').join('') ||
+        '<div class="po-empty">' + t('empty') + '</div>') + '</div>' +
+      '<div class="po-form"><input class="m-search" id="poGit" placeholder="' + t('gitUrl') + '">' +
+      '<div class="po-row"><button class="po-btn primary" id="poClone">' + t('clone') + '</button>' +
+      '<span class="po-empty" id="poCloneMsg"></span></div></div>');
+    popover.querySelectorAll('.po-sess').forEach(btn =>
+      btn.onclick = () => projectMenu({ ...dirs[+btn.dataset.i], host }, x, y));
+    document.getElementById('poClone').onclick = async () => {
+      const url = document.getElementById('poGit').value.trim();
+      if (!url) return;
+      const msg = document.getElementById('poCloneMsg');
+      msg.textContent = t('cloning');
+      const d = await api('clone?url=' + encodeURIComponent(url) + hq);
+      if (d && d.cwd) projectMenu({ ...d, host }, x, y);
+      else if (msg.isConnected) msg.textContent = (d && d.error) || t('cloneFailed');
+    };
   }
 
   // шаг 1б: любая папка на маке через нативный Finder-диалог
@@ -1424,13 +1630,14 @@
   const ENGINES = {
     claude: {
       label: 'Claude',
-      models: [{ id: 'fable', l: 'Fable 5', def: 1 }, { id: 'opus', l: 'Opus 4.8' },
+      models: [{ id: 'fable', l: 'Fable 5.1', def: 1 }, { id: 'opus', l: 'Opus 4.8' },
                { id: 'sonnet', l: 'Sonnet 5' }, { id: 'haiku', l: 'Haiku 4.5' }],
       levels: ['low', 'medium', 'high', 'xhigh'], defL: 'xhigh',
     },
     codex: {
       label: 'Codex',
-      models: [{ id: 'gpt-5.6-sol', l: 'GPT-5.6 Sol', def: 1 }, { id: 'gpt-5.6-codex', l: 'GPT-5.6 Codex' }],
+      models: [{ id: 'gpt-6-astra', l: 'GPT-6 Astra', def: 1 },
+               { id: 'gpt-5.6-sol', l: 'GPT-5.6 Sol' }, { id: 'gpt-5.6-codex', l: 'GPT-5.6 Codex' }],
       levels: ['minimal', 'low', 'medium', 'high', 'xhigh'], defL: 'high',
     },
     // у cursor/opencode списки моделей живые — подгружаются с сервера
@@ -1475,7 +1682,11 @@
     }));
   }
 
-  function engineAvailable(id) {
+  function engineAvailable(id, host) {
+    if (host) {   // у узла свой набор CLI и свой выбор провайдеров
+      const r = remotes.find(r => r.name === host);
+      return !!(r && r[id] && (!r.providers || r.providers.includes(id)));
+    }
     return !!avail[id] && (!enabledProviders || enabledProviders.includes(id));
   }
 
@@ -1486,14 +1697,15 @@
     return (models.find(m => m.def) || models[0]).id;
   }
 
-  function lastModel() {
-    const fallback = { eng: 'claude', model: defaultModel('claude') };
+  function lastModel(host) {
+    const first = Object.keys(ENGINES).find(id => engineAvailable(id, host)) || 'claude';
+    const fallback = { eng: first, model: defaultModel(first) };
     try {
       const saved = JSON.parse(localStorage.getItem(LAST_MODEL_KEY) || 'null');
       const E = saved && ENGINES[saved.eng];
       // у cursor/opencode список ленивый — сохранённую модель не браним до загрузки
       const lazy = saved && (saved.eng === 'cursor' || saved.eng === 'opencode');
-      if (!E || !engineAvailable(saved.eng) ||
+      if (!E || !engineAvailable(saved.eng, host) ||
           (!lazy && !E.models.some(m => m.id === saved.model))) return fallback;
       return { eng: saved.eng, model: saved.model };
     } catch (_) {
@@ -1506,11 +1718,11 @@
   }
 
   function projectMenu(p, x, y) {
-    const last = lastModel();
+    const last = lastModel(p.host);
     const st = { ...last, level: ENGINES[last.eng].defL };
     let draft = '';
     ['cursor', 'opencode'].forEach(id => {
-      if (engineAvailable(id) && !ENGINES[id].loaded)
+      if (engineAvailable(id, p.host) && !ENGINES[id].loaded)
         loadModels(id).then(() => { if (popover.dataset.owner === 'plus') paint(); });
     });
 
@@ -1522,7 +1734,8 @@
       st.model = mSel.id;
       const mLabel = mSel.l || t('default');
       showPopover(x, y,
-        '<div class="po-head">' + esc(p.project) + ' — ' + t('newAgentHead') + '</div>' +
+        '<div class="po-head">' + esc(p.project) + (p.host ? ' ' + hostBadge(p.host) : '') +
+        ' — ' + t('newAgentHead') + '</div>' +
         '<div class="composer">' +
         '<textarea id="poPrompt" placeholder="' + t('promptPlaceholder') + '"></textarea>' +
         '<div class="c-bar"><div class="pw">' +
@@ -1530,7 +1743,7 @@
         (E.levels.length ? ' · ' + st.level : '') + '<span class="chev">▲</span></button>' +
         '<div class="emenu" id="cfgMenu">' +
         '<div class="m-engines">' + Object.keys(ENGINES)
-          .filter(engineAvailable)
+          .filter(id => engineAvailable(id, p.host))
           .map(id => '<button class="eng' + (id === st.eng ? ' on' : '') + '" data-e="' + id + '" title="' +
                      ENGINES[id].label + '">' + agentIcon(id) + '</button>').join('') + '</div>' +
         '<div class="m-label">' + t('model') + '</div>' +
@@ -1647,7 +1860,7 @@
                   '&agent=' + st.eng +
                   '&model=' + encodeURIComponent(st.model) +
                   '&effort=' + encodeURIComponent(st.level || '') +
-                  '&prompt=' + encodeURIComponent(prompt));
+                  '&prompt=' + encodeURIComponent(prompt) + H(p));
         poll();
       }
       document.getElementById('poCreate').onclick = create;
@@ -1655,9 +1868,10 @@
     paint();
   }
 
-  async function historyList(project, cwd, x, y) {
+  async function historyList(project, cwd, x, y, host) {
+    const hq = H({ host });
     showPopover(x, y, '<div class="po-empty">' + t('loadingHistory') + '</div>');
-    const hist = await api('history' + (cwd ? '?cwd=' + encodeURIComponent(cwd) : ''));
+    const hist = await api('history?cwd=' + encodeURIComponent(cwd || '') + hq);
     if (!hist || !hist.length) {
       showPopover(x, y, '<div class="po-empty">' + t('noConversations') + '</div>');
       return;
@@ -1681,7 +1895,7 @@
         await api('add?id=' + encodeURIComponent(h.id) +
                   '&cwd=' + encodeURIComponent(h.cwd) +
                   '&project=' + encodeURIComponent(h.project) +
-                  '&title=' + encodeURIComponent(h.title));
+                  '&title=' + encodeURIComponent(h.title) + hq);
         poll();
       };
     });
@@ -1698,7 +1912,8 @@
     const rows = projects.map((p, i) =>
       '<button class="po-item po-sess po-flex" data-i="' + i + '">' +
       projIcon(p) +
-      '<span class="t">' + esc(p.project) + '</span></button>').join('');
+      '<span class="t">' + esc(p.project) + '</span>' + (p.host ? hostBadge(p.host) : '') +
+      '</button>').join('');
     showPopover(x, y,
       '<div class="po-head">' + t('historyWhich') + '</div>' +
       '<div class="po-list">' +
@@ -1716,7 +1931,10 @@
       }
       cbtn.classList.add('open');
       sub.innerHTML = '<div class="po-sub"><div class="po-empty">' + t('loading') + '</div></div>';
-      const list = await api('closed') || [];
+      // свои закрытые + закрытые на узлах (у тех в записи остаётся host)
+      const list = (await Promise.all([api('closed'), ...remotes.filter(r => r.ok).map(r =>
+        api('closed?' + H({ host: r.name })).then(l => (l || []).map(h => ({ ...h, host: r.name }))))]))
+        .flatMap(l => l || []);
       const onBoard = new Set(lastAgents.map(a => a.cid).filter(Boolean));
       const vis = list.filter(h => !onBoard.has(h.id));
       if (!cbtn.classList.contains('open')) return; // успели свернуть
@@ -1732,7 +1950,7 @@
         await api('add?id=' + encodeURIComponent(h.id) +
                   '&cwd=' + encodeURIComponent(h.cwd) +
                   '&project=' + encodeURIComponent(h.project) +
-                  '&title=' + encodeURIComponent(h.title));
+                  '&title=' + encodeURIComponent(h.title) + H(h));
         poll();
       });
     };
@@ -1740,7 +1958,7 @@
     popover.querySelectorAll('.po-sess[data-i]').forEach(btn => {
       btn.onclick = () => {
         const p = projects[+btn.dataset.i];
-        historyList(p.project, p.cwd, x, y);
+        historyList(p.project, p.cwd, x, y, p.host);
       };
     });
   }
@@ -1965,6 +2183,8 @@
     if (!data) return;
     lastAgents = data.agents;
     projects = data.workspaces;
+    remotes = data.remotes || [];
+    headless = !!data.headless;
     avail.claude = data.claude !== false;
     avail.codex = !!data.codex;
     avail.cursor = !!data.cursor;
@@ -1981,11 +2201,24 @@
     for (const name of Object.keys(cards)) {
       if (!alive.has(name)) { cards[name].remove(); delete cards[name]; }
     }
-    // позиции ушедших с доски — в мусор: имена tmux переиспользуются,
-    // и новый агент со старым именем иначе падает в чужое старое место
+    // Переносим старые координаты, записанные по имени tmux, на постоянный id.
+    // Это также склеивает живое имя и pause:<id> после перезапуска компьютера.
     let pruned = false;
-    for (const name of Object.keys(pos)) {
-      if (!alive.has(name)) { delete pos[name]; pruned = true; }
+    for (const a of lastAgents) {
+      const key = posKey(a);
+      const legacy = [a.name, 'tmux:' + a.name, ...(a.cid ? ['pause:' + a.cid] : [])];
+      const old = legacy.find(k => k !== key && pos[k]);
+      if (!pos[key] && old) { pos[key] = pos[old]; pruned = true; }
+      for (const k of legacy) {
+        if (k !== key && pos[k]) { delete pos[k]; pruned = true; }
+      }
+    }
+    // Позиции карточек, которых больше нет на доске, удаляем. Новый агент с
+    // переиспользованным tmux-именем не должен упасть в чужое старое место.
+    // Пока узел ни разу не ответил, его карточек в списке нет — их места не трогаем.
+    const placed = new Set(lastAgents.map(posKey));
+    if (remotes.every(r => r.loaded)) for (const key of Object.keys(pos)) {
+      if (!placed.has(key)) { delete pos[key]; pruned = true; }
     }
     if (pruned) save();
     for (const a of lastAgents) {
@@ -2051,7 +2284,162 @@
     }
 
     fitCanvas();
+    if (dlgFor) dlgLoad();          // открытый диалог живёт тем же опросом
+    if (!booted) focusFromHash();   // ссылка из уведомления ведёт на карточку
     booted = true;
+  }
+
+  // ---------- диалог сессии: в вебе и на телефоне терминала нет ----------
+  // «открыть» разворачивает разговор целиком; пишем сюда же. Клавиши — для
+  // TUI-вопросов (прервать, выбрать пункт), «экран» показывает сам терминал.
+  const dlg = document.getElementById('dialog');
+  const dlgBody = document.getElementById('dlgBody');
+  const dlgTa = dlg.querySelector('textarea');
+  let dlgFor = null;      // имя карточки, чей диалог открыт
+  let dlgPane = false;    // показывать экран tmux вместо разговора
+
+  function openDialog(name) {
+    dlgFor = name;
+    dlgPane = false;
+    dlgBody.dataset.raw = '';
+    dlgBody.innerHTML = '<div class="ldr"><i></i><i></i><i></i></div>';
+    dlgTa.placeholder = t('messageAgent');
+    dlg.querySelector('.kbd').textContent = t('sendHint');
+    dlg.classList.add('show');
+    dlgLoad();
+  }
+
+  function closeDialog() {
+    dlgFor = null;
+    dlg.classList.remove('show');
+  }
+
+  async function dlgLoad() {
+    const a = agentOf(dlgFor);
+    if (!a) { closeDialog(); return; }
+    dlg.querySelector('.ntext').textContent =
+      a.label || a.sname || (a.status === 'parked' ? a.project : a.name);
+    dlg.querySelector('.st').className = 'st ' + a.status;
+    dlg.querySelector('.proj').textContent = a.project;
+    // active=0 — вкладка в фоне или не в фокусе: диалог обновляем, но «смотрят»
+    // это не считается, и уведомление в Telegram всё равно уйдёт
+    const active = document.visibilityState === 'visible' && document.hasFocus() ? 1 : 0;
+    const d = await api('dialog?s=' + encodeURIComponent(a.status === 'parked' ? '' : a.name) +
+                        '&id=' + encodeURIComponent(a.cid || '') + '&active=' + active + H(a));
+    if (!d || dlgFor !== a.name) return;
+    // разговора ещё нет (агент стоит на стартовом вопросе TUI) — показываем экран
+    const pane = dlgPane || !d.text;
+    const view = document.getElementById('dlgView');
+    view.textContent = pane ? t('dlgChat') : t('dlgScreen');
+    view.classList.toggle('primary', pane);
+    const raw = (pane ? d.pane : d.text) || '';
+    if (dlgBody.dataset.raw === raw && dlgBody.classList.contains('pane') === pane) return;
+    // читают выше — не дёргаем; были внизу — держим низ
+    const stick = dlgBody.scrollHeight - dlgBody.scrollTop - dlgBody.clientHeight < 40;
+    dlgBody.dataset.raw = raw;
+    dlgBody.classList.toggle('pane', pane);
+    if (pane) dlgBody.textContent = raw;
+    else renderPreview(dlgBody, raw);
+    if (stick) dlgBody.scrollTop = dlgBody.scrollHeight;
+  }
+
+  async function dlgSend() {
+    const a = agentOf(dlgFor);
+    const text = dlgTa.value.trim();
+    if (!a || !text) return;
+    dlgTa.value = '';
+    if (!dlgBody.classList.contains('pane')) {   // своё сообщение видно сразу, до ответа сервера
+      dlgBody.insertAdjacentHTML('beforeend', '<span class="umsg grow">' + esc(text) + '</span>');
+      dlgBody.scrollTop = dlgBody.scrollHeight;
+    }
+    await api('send?s=' + encodeURIComponent(a.name) + '&text=' + encodeURIComponent(text) + H(a));
+    poll();
+  }
+
+  dlg.querySelector('.send').onclick = dlgSend;
+  dlgTa.onkeydown = ev => {
+    if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); dlgSend(); }
+  };
+  document.getElementById('dlgClose').onclick = closeDialog;
+  dlg.addEventListener('click', ev => { if (ev.target === dlg) closeDialog(); });
+  document.getElementById('dlgView').onclick = () => { dlgPane = !dlgPane; dlgLoad(); };
+  dlg.querySelectorAll('[data-k]').forEach(b => b.onclick = async () => {
+    const a = agentOf(dlgFor);
+    if (!a) return;
+    await api('key?s=' + encodeURIComponent(a.name) + '&k=' + b.dataset.k + H(a));
+    setTimeout(dlgLoad, 400);   // дать TUI перерисоваться
+  });
+  // телефон: клавиатура съедает низ экрана — держим окно в видимой части
+  if (window.visualViewport) visualViewport.addEventListener('resize', () => {
+    dlg.firstElementChild.style.height = feed() ? visualViewport.height + 'px' : '';
+  });
+
+  function focusFromHash() {
+    const m = location.hash.match(/^#card=(.+)$/);
+    if (!m) return;
+    history.replaceState(null, '', location.pathname);
+    const name = decodeURIComponent(m[1]);
+    if (!cards[name]) return;
+    if (headless) openDialog(name);
+    else cards[name].scrollIntoView({ block: 'center', inline: 'center' });
+  }
+
+  // ---------- вход: доска-узел в интернете пускает к /api только по токену ----------
+  async function doLogin(token) {
+    // токен — заголовком: адреса оседают в логах прокси
+    const r = await fetch('/api/login', { headers: { 'X-Token': token, 'X-AB': '1' } }).catch(() => null);
+    return !!(r && r.ok);
+  }
+
+  function showLogin() {
+    const el = document.getElementById('login');
+    if (el.classList.contains('show')) return;
+    document.getElementById('loginSub').textContent = t('loginSub');
+    document.getElementById('loginGo').textContent = t('loginGo');
+    document.getElementById('loginToken').placeholder = t('loginToken');
+    el.classList.add('show');
+    document.getElementById('loginToken').focus();
+  }
+
+  async function submitLogin() {
+    const inp = document.getElementById('loginToken');
+    if (await doLogin(inp.value.trim())) {
+      inp.value = '';
+      document.getElementById('login').classList.remove('show');
+      initSkins();
+      poll();
+    } else {
+      document.getElementById('loginHint').textContent = t('loginBad');
+    }
+  }
+  document.getElementById('loginGo').onclick = submitLogin;
+  document.getElementById('loginToken').onkeydown = ev => { if (ev.key === 'Enter') submitLogin(); };
+
+  // ---------- облако: подключить доску-узел (настройки) ----------
+  function cloudForm() {
+    const r = remotes[0];
+    showPopover(null, null,
+      '<div class="po-head">' + t('cloud') + '</div>' +
+      '<div class="po-form">' +
+      '<input class="m-search" id="clUrl" placeholder="https://board.example.com" value="' + esc(r ? r.url : '') + '">' +
+      '<input class="m-search" id="clToken" type="password" placeholder="' + t('cloudToken') + (r ? ' ••••' : '') + '">' +
+      '<input class="m-search" id="clSsh" placeholder="' + t('cloudSsh') + '" value="' + esc(r ? r.ssh : '') + '">' +
+      '<div class="po-row"><button class="po-btn primary" id="clSave">' + t('connect') + '</button>' +
+      (r ? '<button class="po-btn" id="clOff">' + t('cloudOff') + '</button>' : '') +
+      '<span class="po-empty" id="clMsg"></span></div></div>');
+    popover.dataset.owner = 'settings';
+    const val = id => document.getElementById(id).value.trim();
+    const set = async q => {
+      document.getElementById('clMsg').textContent = t('loading');
+      const res = await api('remote_set?' + q);
+      if (res && res.ok) { hidePopover(); poll(); }
+      else if (document.getElementById('clMsg')) document.getElementById('clMsg').textContent = t('cloudBad');
+    };
+    document.getElementById('clSave').onclick = () => {
+      if (val('clUrl')) set('url=' + encodeURIComponent(val('clUrl')) + '&ssh=' + encodeURIComponent(val('clSsh')) +
+                            '&token=' + encodeURIComponent(val('clToken')));
+    };
+    if (r) document.getElementById('clOff').onclick = () => set('url=');
   }
 
   // ---------- скины: css-файлы в skins/, грузятся поверх базового стиля ----------
@@ -2106,9 +2494,20 @@
       '<button class="po-item po-flex" data-lang="' + l.code + '">' +
       '<span class="po-check">' + (l.code === LANG ? '✓' : '') + '</span>' +
       '<span class="t">' + l.name + '</span></button>').join('');
+    // облако: другая доска-узел на сервере; у доски на сервере пункта нет — она сама узел
+    const r0 = remotes[0];
+    const cloudRows = headless ? '' :
+      '<div class="po-head">' + t('cloud') + '</div>' +
+      '<button class="po-item po-flex" data-cloud="1">' +
+      '<span class="po-check">' + (r0 ? (r0.ok ? '✓' : '!') : '') + '</span>' +
+      '<span class="t">' + (r0 ? esc(r0.url.replace(/^https?:\/\//, '')) : t('cloudConnect') + '…') +
+      '</span></button>';
     showPopover(x, y, '<div class="po-head">' + t('boardSkin') + '</div>' + rows + appBlock +
-                      '<div class="po-head">' + t('agents') + '</div>' + provRows +
+                      '<div class="po-head">' + t('agents') + '</div>' + provRows + cloudRows +
                       '<div class="po-head">' + t('language') + '</div>' + langRows);
+    popover.querySelectorAll('.po-item[data-cloud]').forEach(btn => {
+      btn.onclick = () => cloudForm();
+    });
     popover.querySelectorAll('.po-item[data-app]').forEach(btn => {
       btn.onclick = () => {
         applyAppearance(btn.dataset.app);
@@ -2145,10 +2544,20 @@
     document.documentElement.classList.toggle('dark', appearance() === 'dark');
   }
 
-  applyLang();
-  initSkins();
-  poll();
-  setInterval(poll, 2000);
+  // ссылка вида …/#token=… входит сама — так доску удобно открыть с телефона;
+  // токен из адреса сразу убираем
+  async function boot() {
+    const m = location.hash.match(/^#token=(.+)$/);
+    if (m) {
+      history.replaceState(null, '', location.pathname);
+      await doLogin(decodeURIComponent(m[1]));
+    }
+    applyLang();
+    initSkins();
+    poll();
+    setInterval(poll, 2000);
+  }
+  boot();
 </script>
 </body>
 </html>

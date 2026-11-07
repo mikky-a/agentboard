@@ -487,3 +487,221 @@ body::before {
   background: conic-gradient(#ffb524, #5be070, #ffb524);
   border: 1px solid #00000070;
 }
+
+/* ---------- ночная смена: бумага уходит, остаётся синька и бакелит ---------- */
+/*
+  Ночной вариант скина (пункт «оформление» в настройках, класс .dark на <html>).
+  Корпус у СССР и так стальной — темнеет он лишь на пару тонов, а настоящая работа
+  в бумаге: бланки АЦПУ становятся светокопией-синькой (белые линии по тёмно-синему),
+  костяные шильдики — гравированным бакелитом, эмаль клавиш глуше.
+  Фосфор ЭЛТ и сигнальные лампы не трогаем: ночью они и есть свет.
+*/
+
+/* корпус: сталь под дежурным освещением */
+html.dark body { background: #1a1e1d; }
+html.dark body::before {
+  background:
+    repeating-linear-gradient(90deg, #ffffff04 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, #0000000d 0 1px, transparent 1px 5px),
+    radial-gradient(ellipse at 20% 0%, #262c2a 0%, #16191888 55%, transparent 100%),
+    radial-gradient(ellipse at 80% 100%, #00000077, transparent 60%),
+    linear-gradient(180deg, #1e2321, #131615);
+}
+html.dark .topbar {
+  background:
+    radial-gradient(circle at 13px 50%, #aab0a8 1.2px, #3a403c 2px, #14181688 2.8px, transparent 3.6px),
+    radial-gradient(circle at calc(100% - 13px) 50%, #aab0a8 1.2px, #3a403c 2px, #14181688 2.8px, transparent 3.6px),
+    repeating-linear-gradient(90deg, #ffffff05 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at 75% 0%, #ffffff08, transparent 55%),
+    linear-gradient(180deg, #262e2b, #171b19 55%, #1f2422);
+  color: #8a938c;
+}
+html.dark .topbar b { color: #a9afa7; }
+/* клавиши: тёмная сталь, гравировка светится фосфором — днём она тёмная по эмали,
+   ночью эмаль глуше, и тёмная гравировка на ней уже не читается */
+html.dark .top-btn {
+  color: #dff0e2;
+  text-shadow: 0 1px 0 #00000080;
+  background: linear-gradient(180deg, #3f7150 0%, #2f5b3d 48%, #1f4229 100%);
+  box-shadow: 0 2px 0 #0f2214, 0 3px 4px #0009, inset 0 1px 0 #ffffff2e, inset 0 -2px 3px #0006;
+}
+html.dark .top-btn:hover { background: linear-gradient(180deg, #457b54 0%, #35653f 48%, #234c2f 100%); }
+html.dark .top-btn.ghost {
+  color: #dfe3dd;
+  text-shadow: 0 1px 0 #00000080;
+  background: linear-gradient(180deg, #4d5450, #383e3a);
+  border-color: #232825;
+  box-shadow: inset 0 1px 0 #ffffff26, 0 2px 0 #222623, 0 3px 5px #0007;
+}
+html.dark .top-btn.ghost:hover { color: #f0f3ee; background: linear-gradient(180deg, #5a615c, #444a46); }
+
+/* карточка: эмаль глуше, винты и штриховка остаются от дневного стека */
+html.dark .acard { background-color: #2b352d; }
+html.dark .acard-actions { background: linear-gradient(180deg, #222a24, #1d251f); }
+html.dark .acard-actions button {
+  color: #dfe3dd;
+  text-shadow: 0 1px 0 #00000080;
+  background: linear-gradient(180deg, #4d5450, #383e3a);
+  border-color: #232825;
+  box-shadow: inset 0 1px 0 #ffffff26, 0 2px 0 #222623, 0 3px 4px #0007;
+}
+html.dark .acard-actions button:hover { color: #f0f3ee; background: linear-gradient(180deg, #5a615c, #444a46); }
+html.dark .acard-actions .primary {
+  color: #dff0e2;
+  background: linear-gradient(180deg, #3f7150 0%, #2f5b3d 48%, #1f4229 100%);
+  box-shadow: 0 2px 0 #0f2214, 0 3px 4px #0009, inset 0 1px 0 #ffffff2e, inset 0 -2px 3px #0006;
+}
+html.dark .acard-actions .primary:hover { color: #f2fbf3; background: linear-gradient(180deg, #457b54 0%, #35653f 48%, #234c2f 100%); }
+html.dark .send { background: #2b352d; border-color: #1b231d; }
+html.dark .send:hover { background: #35423a; }
+
+/* шильдик карточки: гравированный бакелит вместо кости */
+html.dark .acard-head {
+  background-color: #262820;
+  background-image:
+    radial-gradient(ellipse at 28% 40%, #00000026, transparent 55%),
+    radial-gradient(circle at 82% 72%, #8a642a1f, transparent 42%),
+    linear-gradient(180deg, #ffffff12, transparent 45%, #00000022);
+  border-bottom-color: #14170f;
+  box-shadow: inset 0 1px 0 #ffffff14, inset 0 -1px 0 #0007;
+}
+html.dark .hlogo { border-color: #4a4636; filter: sepia(.25) saturate(.85) brightness(.9); }
+html.dark .ntext { color: #d6cdb0; text-shadow: 0 1px 0 #00000080; }
+html.dark .ntext[contenteditable="plaintext-only"] { background: #1b1d16; color: #e7dcbb; }
+html.dark .proj { color: #8d8570; }
+html.dark .xbtn { color: #8d8570; }
+html.dark .acard-actions .meta-tip {
+  background: linear-gradient(180deg, #2e3128, #22241d); color: #d6cdb0;
+  border-color: #6b551f;
+  box-shadow: inset 0 1px 0 #ffffff14, 0 3px 0 #14170f, 0 8px 18px #000b;
+}
+html.dark .acard-actions .meta-tip-time { color: #8d8570; }
+html.dark .acard-actions .meta-tip .agent-logo-codex,
+html.dark .acard-actions .meta-tip .agent-logo-cursor,
+html.dark .acard-actions .meta-tip .agent-logo-opencode { color: #d6cdb0; }
+html.dark .agent-logo-codex,
+html.dark .agent-logo-cursor,
+html.dark .agent-logo-opencode { color: #8d8570; }
+
+/* бланки: светокопия — белые линии по тёмно-синему */
+html.dark #onboard, html.dark #dim { background: #070d12d6; }
+html.dark .ob-card {
+  background-color: #0f1c2a;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 15px, #ffffff0d 15px 16px),
+    radial-gradient(ellipse at 60% 20%, #9fc8e824 0, transparent 60%);
+  border-color: #2c4a63;
+  box-shadow: 0 14px 36px #000c, inset 0 0 22px #9fc8e80f;
+  color: #cddff0;
+}
+html.dark .ob-head { color: #9fc8e8; }
+html.dark .ob-head::before, html.dark .ob-head::after { color: #d1503f; }
+html.dark .ob-sub, html.dark .ob-foot .m { color: #7d97ad; }
+html.dark .ob-row { color: #cddff0; }
+html.dark .ob-row:hover { background: #9fc8e820; }
+html.dark .ob-row .ck { color: #5be070; }
+html.dark .ob-row .m { color: #7d97ad; }
+
+/* окно «агенты и модели»: та же синька */
+html.dark .mw-rail, html.dark .mw-search-wrap { border-color: #2c4a63; }
+html.dark .mw-rail .ob-row.sel { background: #9fc8e820; outline-color: #2c4a63; }
+html.dark .mw-fav:hover, html.dark .mw-row:hover { background: #9fc8e820; }
+html.dark .mw-fav .nm, html.dark .mw-row .nm { color: #cddff0; }
+html.dark .mw-id, html.dark .mw-hint, html.dark .mw-rail .cnt { color: #7d97ad; }
+html.dark .mw-note { color: #5c7d96; }
+html.dark .mw-prov { color: #9fc8e8; background: #16293b; border-color: #2c4a63; }
+html.dark .mw-def { color: #6fce80; background: #16301f; border-color: #2c6e3a; }
+html.dark .mw-def.off { color: #7d97ad; background: transparent; border-color: #2c4a63; }
+html.dark .mw-fav .star, html.dark .mw-row:hover .star { color: #c8a01f; }
+html.dark .mw-row .star { color: #46596b; }
+/* кумач по синьке глухой — на тёмном берём осветлённый штемпельный красный */
+html.dark .mw-fav .x:hover { color: #e0705c; }
+html.dark .m-search { border-bottom-color: #2c4a63; color: #cddff0; }
+
+/* попап: перфорация светится по синьке, а не темнеет по бумаге */
+html.dark #popover {
+  background-color: #0f1c2a;
+  background-image:
+    radial-gradient(circle, #ffffff2e 2px, transparent 2.7px),
+    radial-gradient(circle, #ffffff2e 2px, transparent 2.7px),
+    repeating-linear-gradient(0deg, transparent 0 15px, #ffffff0d 15px 16px),
+    radial-gradient(ellipse at 60% 20%, #9fc8e824 0, transparent 60%),
+    linear-gradient(90deg, #ffffff0f 0 16px, transparent 16px calc(100% - 16px), #ffffff0f calc(100% - 16px));
+  border-color: #2c4a63;
+  box-shadow: 0 14px 36px #000c, inset 0 0 22px #9fc8e80f;
+  color: #cddff0;
+}
+html.dark #popover .po-head { color: #9fc8e8; border-bottom-color: #2c4a63; }
+html.dark #popover .po-head::before, html.dark #popover .po-head::after { color: #d1503f; }
+html.dark #popover .po-item { color: #cddff0; }
+html.dark #popover .po-item:hover { background: #9fc8e820; }
+html.dark #popover .po-sess .t { color: #cddff0; }
+html.dark #popover .po-sess .m, html.dark #popover .po-empty { color: #7d97ad; }
+html.dark #popover .po-x { color: #5c7d96; }
+html.dark #popover .po-folder { color: #7d97ad; }
+html.dark #popover .po-logo { box-shadow: 0 0 0 1px #2c4a63; filter: sepia(0.25) brightness(0.9); }
+html.dark #popover .po-check { color: #e0705c; }
+html.dark #popover textarea {
+  background: #0a1622; color: #cddff0;
+  border-color: #2c4a63;
+  box-shadow: inset 0 1px 4px #00000066;
+}
+html.dark #popover textarea:focus { border-color: #9fc8e8; box-shadow: inset 0 1px 4px #00000066, 0 0 0 2px #9fc8e833; }
+html.dark #popover textarea::placeholder { color: #5c7d96; }
+html.dark #popover .po-btn {
+  color: #dfe3dd;
+  text-shadow: 0 1px 0 #00000080;
+  background: linear-gradient(180deg, #4d5450, #383e3a);
+  border-color: #232825;
+  box-shadow: inset 0 1px 0 #ffffff26, 0 2px 0 #222623, 0 3px 4px #0007;
+}
+html.dark #popover .po-btn:hover { color: #f0f3ee; background: linear-gradient(180deg, #5a615c, #444a46); }
+html.dark #popover .po-btn.primary {
+  color: #dff0e2;
+  background: linear-gradient(180deg, #3f7150 0%, #2f5b3d 48%, #1f4229 100%);
+  box-shadow: 0 2px 0 #0f2214, 0 3px 4px #0009, inset 0 1px 0 #ffffff2e, inset 0 -2px 3px #0006;
+}
+html.dark #popover .po-btn.primary:hover { color: #f2fbf3; background: linear-gradient(180deg, #457b54 0%, #35653f 48%, #234c2f 100%); }
+
+/* меню моделей у композера: тоже синька */
+html.dark .emenu { background: #0f1c2a; color: #cddff0; border-color: #6b551f; }
+html.dark .m-engines { border-bottom-color: #6b551f; }
+html.dark .eng:hover, html.dark .eng.on { background: #9fc8e820; }
+html.dark .eng.on { border-color: #9fc8e8; }
+html.dark .m-item { color: #cddff0; }
+html.dark .m-item:hover { background: #9fc8e820; }
+html.dark .m-item .ck { color: #e0705c; }
+html.dark .m-item .mdef, html.dark .m-label { color: #c8a01f; }
+html.dark .m-more { color: #5c7d96; }
+html.dark .m-more:hover, html.dark .m-row.open .m-more { background: #9fc8e820; color: #cddff0; }
+
+/* пустая доска: табличка тоже бакелитовая */
+html.dark #empty code {
+  background-color: #262820;
+  background-image: linear-gradient(180deg, #ffffff12, transparent 45%, #00000022);
+  border-color: #4a4636;
+  color: #d6cdb0;
+  box-shadow: inset 0 1px 0 #ffffff14, 0 2px 3px #0009;
+  text-shadow: 0 1px 0 #00000080;
+}
+
+/* ---------- облако, вход, диалог сессии ---------- */
+/* значок узла — лампа линии связи: холодный свет, янтарь при обрыве */
+.hostb { color: #7fd0e0; filter: drop-shadow(0 0 4px #7fd0e088); }
+.hostb.off { color: #ffb524; filter: drop-shadow(0 0 4px #ffb52488); }
+/* на бумаге бланка лампа не светит — там это чернильный штамп */
+#popover .hostb { color: #2b4d68; filter: none; }
+#popover .hostb.off { color: #b3362a; }
+#login, #dialog { background: #14100cc4; }
+/* диалог — тот же прибор, только экран во весь рост */
+.acard.dlg .acard-body { box-shadow: inset 0 0 30px #000c, inset 0 0 0 1px #0b0f0c; }
+html.dark #popover .hostb { color: #9fc8e8; }
+html.dark #popover .hostb.off { color: #e0705c; }
+html.dark #login, html.dark #dialog { background: #070d12d6; }
+
+/* лента на телефоне: шильдик без звёзд — иначе клавиши не влезают в пульт */
+@media (max-width: 720px) {
+  .topbar { padding-left: 24px; padding-right: 24px; }   /* клавиши не наезжают на винты */
+  .topbar b { letter-spacing: .1em; }
+  .topbar b::before, .topbar b::after { content: none; }
+}

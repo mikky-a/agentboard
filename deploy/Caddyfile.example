@@ -1,0 +1,5 @@
+# /etc/caddy/Caddyfile: HTTPS for the board. Caddy gets the certificate itself;
+# the domain's DNS A record must point at this server and ports 80/443 be open.
+board.example.com {
+	reverse_proxy 127.0.0.1:8787
+}

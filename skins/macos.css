@@ -638,3 +638,21 @@ html.dark .cmp-row .kbd { color: #8e8e93; }
 @media (prefers-reduced-motion: reduce) {
   html.dark .acard.waiting { animation: none; }
 }
+
+/* ---------- облако, вход, диалог сессии ---------- */
+/* значок узла — системный синий, без свечения: на стекле глоу грязнит */
+.hostb { color: #0a84ff; filter: none; }
+.hostb.off { color: #ff9f0a; }
+#login, #dialog {
+  background: rgba(40, 40, 45, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+/* диалог — то же стекло карточки, но плотнее: это лист для чтения */
+.acard.dlg { background: rgba(250, 250, 252, 0.96); }
+.acard.dlg .acard-body { color: #2c2c2e; }
+html.dark .hostb { color: #64a8ff; }
+html.dark .hostb.off { color: #ffb340; }
+html.dark #login, html.dark #dialog { background: rgba(0, 0, 0, 0.5); }
+html.dark .acard.dlg { background: rgba(44, 44, 48, 0.97); }
+html.dark .acard.dlg .acard-body { color: #d1d1d6; }

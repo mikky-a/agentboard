@@ -8,7 +8,8 @@ for you.
 ![Agent Board — launching agents, statuses, replying from the board](docs/demo.gif)
 
 **[Download AgentBoard.dmg](https://github.com/mikky-a/agentboard/releases/latest/download/AgentBoard.dmg)** ·
-[agentboard site](https://mikky-a.github.io/agentboard/) · macOS 13+ · MIT
+[agentboard site](https://mikky-a.github.io/agentboard/) · macOS 13+ ·
+[Linux server](SERVER.md) · MIT
 
 - **Start an agent in a second** — pick a folder, type the task. It runs in the
   background as a tile; no terminal window opens.
@@ -23,6 +24,10 @@ for you.
 
 Everything runs locally: the board reads the CLIs' own logs and talks to tmux on
 your machine. No account, no telemetry. The UI speaks English and Russian.
+
+**On a server** the same board keeps agents running around the clock: open it
+from any browser over HTTPS, get a Telegram message when an agent finishes or
+waits for you, and answer it right from Telegram. See [SERVER.md](SERVER.md).
 
 ## Requirements
 
@@ -102,6 +107,10 @@ pull possible.)
   the "＋ agent" picker (default: `~/Documents/dev:~/Documents`). Any other
   folder is always reachable via the native "other folder…" dialog.
 
+Server settings (`AGENTBOARD_HOST`, `AGENTBOARD_TOKEN`, `AGENTBOARD_URL`,
+`AGENTBOARD_DATA`, `AGENTBOARD_TG_TOKEN`, `AGENTBOARD_TG_CHAT`) are described in
+[deploy/agentboard.env.example](deploy/agentboard.env.example).
+
 ## Files
 
 - `agentboard.py` — server (Python stdlib, localhost:8787)
@@ -109,12 +118,14 @@ pull possible.)
 - `skins/` — macOS and Soviet themes on top of the base terminal one
 - `board.json` — your board state (created on first run, not in the repo)
 - `app/` + `build_app.sh` — native wrapper (Swift + WKWebView)
+- `deploy/` — systemd unit, settings and Caddy templates for a Linux server
+- `test_*.py` — tests: `python3 -m unittest test_codex_notifications test_agent_input`
 
 ## Roadmap
 
 - Resume for paused Codex / Cursor / opencode cards (Claude only for now)
 - Homebrew tap
-- Windows/Linux support
+- Native Linux desktop and Windows (a Linux server works already: [SERVER.md](SERVER.md))
 
 ## License
 

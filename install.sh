@@ -12,7 +12,11 @@ DIR="${AGENTBOARD_DIR:-$HOME/.agentboard}"
 REPO="https://github.com/mikky-a/agentboard.git"
 PLIST="$HOME/Library/LaunchAgents/com.agentboard.plist"
 
-[ "$(uname)" = "Darwin" ] || { echo "Agent Board is macOS-only for now"; exit 1; }
+[ "$(uname)" = "Darwin" ] || {
+  echo "install.sh sets up the macOS app. For a Linux server follow SERVER.md:"
+  echo "  https://github.com/mikky-a/agentboard/blob/main/SERVER.md"
+  exit 1
+}
 command -v git >/dev/null || { echo "git is required (xcode-select --install)"; exit 1; }
 
 PY="$(command -v python3 || true)"

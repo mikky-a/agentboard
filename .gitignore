@@ -14,3 +14,11 @@ __pycache__/
 .DS_Store
 .build-cache/
 AgentBoard.dmg
+
+# состояние уведомлений и вложения из Telegram, когда данные лежат рядом с кодом
+# (AGENTBOARD_DATA не задан)
+telegram.json
+notifier.json
+tg-queue.json
+tg-last.json
+inbox/

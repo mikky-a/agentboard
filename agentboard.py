@@ -11,6 +11,7 @@ Claude Code — вернуть можно через «+» из истории.
 """
 import glob
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -22,14 +23,22 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 __version__ = "0.2.2"
 
 PORT = int(os.environ.get("AGENTBOARD_PORT", "8787"))
+# доска как узел в облаке: задан токен — /api отвечает только по нему
+# (cookie после входа в браузере или Bearer от другой доски)
+HOST = os.environ.get("AGENTBOARD_HOST", "127.0.0.1")
+TOKEN = os.environ.get("AGENTBOARD_TOKEN", "")
+TOKEN_HASH = hashlib.sha256(TOKEN.encode()).hexdigest()  # в cookie лежит он, не сам токен
+# на сервере нет Terminal и Finder: «открыть» там — диалог прямо в браузере
+HEADLESS = sys.platform != "darwin" or bool(os.environ.get("AGENTBOARD_HEADLESS"))
 # бандл-версия (.app) приносит свой tmux и живёт на своём сокете,
 # чтобы не пересекаться с юзерским tmux-сервером (protocol version mismatch)
 TMUX = os.environ.get("AGENTBOARD_TMUX") or shutil.which("tmux") or "/opt/homebrew/bin/tmux"
@@ -101,6 +110,8 @@ caffeinate = None
 
 def update_caffeinate(active):
     global caffeinate
+    if HEADLESS:
+        return
     if active and caffeinate is None:
         try:
             caffeinate = subprocess.Popen(
@@ -115,17 +126,19 @@ activity_cache = {}  # (путь, типы записей) -> (mtime, timestamp 
 model_cache = {}     # (путь, агент) -> (mtime, модель)
 
 MODEL_LABELS = {
-    "fable": "Fable 5",
+    "fable": "Fable 5.1",
     "opus": "Opus 4.8",
     "sonnet": "Sonnet 5",
     "haiku": "Haiku 4.5",
     "claude-fable-5": "Fable 5",
+    "claude-fable-5-1": "Fable 5.1",
     "claude-opus-4-8": "Opus 4.8",
     "claude-opus-4-7": "Opus 4.7",
     "claude-sonnet-5": "Sonnet 5",
     "claude-haiku-4-5": "Haiku 4.5",
     "gpt-5.6-sol": "GPT-5.6 Sol",
     "gpt-5.6-codex": "GPT-5.6 Codex",
+    "gpt-6-astra": "GPT-6 Astra",
     "composer-2.5": "Composer 2.5",
     "composer-2.5-fast": "Composer 2.5 Fast",
     "openrouter/moonshotai/kimi-k3": "Kimi K3",
@@ -610,6 +623,7 @@ def load_board():
     data.setdefault("closed", [])  # недавно убранные с доски — можно вернуть
     data.setdefault("providers", None)  # None = онбординг ещё не пройден
     data.setdefault("models", {})  # agent -> {"favs": [id...], "def": id}
+    data.setdefault("remotes", [])  # другие доски-узлы: {"name", "url", "token", "ssh"}
     return data
 
 
@@ -846,20 +860,8 @@ def get_history(cwd=None, days=30, limit=50):
 preview_cache = {}  # путь jsonl -> (mtime, превью)
 
 
-def turn_preview(cwd, sid, include_trailing=True):
-    """Последний тур из jsonl-транскрипта: полный текст, без терминального хрома.
-    Якоримся на последнем ОТВЕЧЕННОМ вопросе: неотвеченный (прерванный) вопрос
-    показываем хвостом, а не пустым туром."""
-    path = find_session_file(cwd, sid)
-    if not path:
-        return ""
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
-        return ""
-    hit = preview_cache.get(path)
-    if hit and hit[0] == mtime and len(hit) == 3:
-        return hit[1] if include_trailing else hit[2]
+def claude_items(path):
+    """Реплики и тул-вызовы из jsonl клода: [("u"|"a"|"t", текст)]; None — файл не читается."""
     try:
         size = os.path.getsize(path)
         with open(path, errors="ignore") as f:
@@ -868,7 +870,7 @@ def turn_preview(cwd, sid, include_trailing=True):
                 f.readline()  # добить обрезанную строку
             lines = f.readlines()
     except OSError:
-        return ""
+        return None
 
     def user_text(c):
         # юзер-контент бывает строкой или списком блоков
@@ -915,24 +917,47 @@ def turn_preview(cwd, sid, include_trailing=True):
                     items.append(("a", item["text"].strip()))
                 elif item.get("type") == "tool_use":
                     items.append(("t", tool_sig(item)))
+    return items
+
+
+def render_items(chunk, limit=500):
+    """Реплики -> текст превью: «> вопрос», «⏺ Тул(деталь)», ответы как есть."""
+    out = []
+    for kind, text in chunk:
+        if kind == "u":
+            out.append("> " + " ".join(text.split())[:500])
+        elif kind == "t":
+            out.append("⏺ " + text)
+        else:
+            out.append(text)
+    t = "\n\n".join(out)
+    return "\n".join(t.splitlines()[-limit:])
+
+
+def turn_preview(cwd, sid, include_trailing=True):
+    """Последний тур из jsonl-транскрипта: полный текст, без терминального хрома.
+    Якоримся на последнем ОТВЕЧЕННОМ вопросе: неотвеченный (прерванный) вопрос
+    показываем хвостом, а не пустым туром."""
+    path = find_session_file(cwd, sid)
+    if not path:
+        return ""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return ""
+    hit = preview_cache.get(path)
+    if hit and hit[0] == mtime and len(hit) == 3:
+        return hit[1] if include_trailing else hit[2]
+    items = claude_items(path)
+    if items is None:
+        return ""
     if not items:
         preview_cache[path] = (mtime, "", "")
         return ""
-    def render(chunk):
-        out = []
-        for kind, text in chunk:
-            if kind == "u":
-                out.append("> " + " ".join(text.split())[:500])
-            elif kind == "t":
-                out.append("⏺ " + text)
-            else:
-                out.append(text)
-        t = "\n\n".join(out)
-        return "\n".join(t.splitlines()[-500:])
 
     # занятый агент: якорь — твоё последнее сообщение (виден вопрос + растущий ответ)
     last_u = max((i for i, (k, _) in enumerate(items) if k == "u"), default=0)
-    busy_text = render(items[last_u:])
+    busy_text = render_items(items[last_u:])
 
     # тихий агент: последний ЗАВЕРШЁННЫЙ тур; мёртвые неотвеченные хвосты не показываем
     answered = None
@@ -943,7 +968,7 @@ def turn_preview(cwd, sid, include_trailing=True):
     cut = len(seq)
     while cut > 0 and seq[cut - 1][0] == "u":
         cut -= 1
-    idle_text = render(seq[:cut]) or busy_text
+    idle_text = render_items(seq[:cut]) or busy_text
 
     preview_cache[path] = (mtime, busy_text, idle_text)
     return busy_text if include_trailing else idle_text
@@ -995,24 +1020,17 @@ def codex_rollout(cwd, created, exclude=()):
     return best
 
 
-def codex_turn_preview(path):
-    """Последний тур из rollout-файла codex."""
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
-        return ""
-    hit = preview_cache.get(path)
-    if hit and hit[0] == mtime:
-        return hit[1]
+def codex_items(path, window=400_000):
+    """Реплики и тул-вызовы из rollout codex: [(роль|"tool", текст)]; None — не читается."""
     try:
         size = os.path.getsize(path)
         with open(path, errors="ignore") as f:
-            if size > 400_000:
-                f.seek(size - 400_000)
+            if size > window:
+                f.seek(size - window)
                 f.readline()
             lines = f.readlines()
     except OSError:
-        return ""
+        return None
     items = []
     for l in lines:
         try:
@@ -1050,11 +1068,30 @@ def codex_turn_preview(path):
                 detail = " ".join(detail)
             detail = " ".join(str(detail).split())[:60]
             items.append(("tool", f"{name}({detail or '…'})"))
+    return items
+
+
+def codex_said(role, text):
+    """Настоящая реплика юзера; scaffold-сообщения codex ≥0.144 тоже идут с ролью user."""
+    return role == "user" and text.strip() \
+        and not text.lstrip().startswith(("<", "# AGENTS.md"))
+
+
+def codex_turn_preview(path):
+    """Последний тур из rollout-файла codex."""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return ""
+    hit = preview_cache.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    items = codex_items(path)
+    if items is None:
+        return ""
     start = None
     for i, (role, text) in enumerate(items):
-        # scaffold-сообщения codex ≥0.144 идут с ролью user — они не реплика
-        if role == "user" and text.strip() \
-                and not text.lstrip().startswith(("<", "# AGENTS.md")):
+        if codex_said(role, text):
             start = i
     if start is None:
         # длинный тур: реплика юзера уехала за 400КБ-окно — показываем хвост работы
@@ -1300,6 +1337,154 @@ def log_preview(agent, ro):
     if agent == "cursor":
         return cursor_turn_preview(ro)
     return opencode_turn_preview(ro)
+
+
+# ---------- окно диалога: весь разговор, а не последний тур ----------
+# В вебе и на телефоне терминала нет: карточка открывается диалогом. Текст —
+# из того же структурного лога, что и превью; экран tmux отдаём рядом, чтобы
+# было видно TUI-вопрос, на который отвечают клавишами (send_key).
+
+dialog_cache = {}  # путь лога -> (mtime, текст)
+dialog_seen = {}   # tmux-сессия -> когда диалог последний раз опрашивали (окно открыто — каждые 2с)
+
+
+def dialog_text(card):
+    agent = card.get("agent", "claude")
+    if agent == "claude":
+        path = find_session_file(card["cwd"], card["id"]) if card.get("id") else ""
+    else:
+        path = card.get("rollout", "")
+    if not path:
+        return ""
+    if agent not in ("claude", "codex"):
+        return log_preview(agent, path)  # cursor/opencode — пока последний тур
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return ""
+    hit = dialog_cache.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    if agent == "claude":
+        items = claude_items(path) or []
+    else:
+        items = [("u" if role == "user" else "t" if role == "tool" else "a",
+                  NAME_RE.sub("", text))
+                 for role, text in codex_items(path, 2_000_000) or []
+                 if role == "tool" or codex_said(role, text)
+                 or (role == "assistant" and text.strip())]
+    text = render_items(items, 3000)
+    dialog_cache[path] = (mtime, text)
+    return text
+
+
+def get_dialog(tname, cid, active=True):
+    with BOARD_LOCK:
+        cards = load_board()["cards"]
+    card = (next((c for c in cards if tname and c.get("tmux") == tname), None)
+            or next((c for c in cards if cid and c.get("id") == cid), None))
+    if not card:
+        return None
+    pane = tmux("capture-pane", "-p", "-t", card["tmux"]) if card.get("tmux") else ""
+    # фоновая вкладка с открытым диалогом опрашивает так же, но на агента никто
+    # не смотрит — иначе уведомление в Telegram молча пропадало
+    if card.get("tmux") and active:
+        dialog_seen[card["tmux"]] = time.time()
+    return {"text": dialog_text(card), "pane": pane.rstrip()}
+
+
+def being_watched(name):
+    """На агента сейчас смотрят: его диалог открыт во вкладке, которая на виду и в фокусе,
+    или к tmux-сессии подключён терминал."""
+    return (time.time() - dialog_seen.get(name, 0) < 10
+            or bool(tmux("list-clients", "-t", name).strip()))
+
+
+KEYS = {"esc": "Escape", "enter": "Enter", "up": "Up", "down": "Down", "tab": "Tab"}
+
+
+def send_key(name, key):
+    """Клавиша в терминал агента: прервать (esc), выбрать пункт TUI-диалога."""
+    if key not in KEYS or not tmux_ok("has-session", "-t", name):
+        return False
+    tmux("send-keys", "-t", name, KEYS[key])
+    return True
+
+
+# ---------- облако: другие доски-узлы ----------
+# На сервере крутится такой же agentboard.py со своим tmux и своим board.json —
+# он источник правды для облачных агентов. Эта доска подмешивает его карточки
+# к своим (поле host) и пересылает ему действия по ним (Handler.proxy).
+# С телефона узел открывают напрямую: там только облачные.
+
+REMOTE = {}             # имя узла -> {"data": его /api/agents, "at": когда получили}
+REMOTE_WANTED = [0.0]   # когда доску последний раз опрашивали: закрыта — узлы не дёргаем
+
+
+def remote_get(r, path, timeout=8):
+    req = urllib.request.Request(
+        r["url"].rstrip("/") + path,
+        headers={"Authorization": "Bearer " + r.get("token", ""),
+                 "User-Agent": "agentboard"})
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def remote_fetch(r):
+    try:
+        with remote_get(r, "/api/agents") as resp:
+            REMOTE[r["name"]] = {"data": json.load(resp), "at": time.time()}
+        return True
+    except Exception:
+        return False  # нет связи — показываем последний снимок, узел помечен ok=False
+
+
+def remote_poller():
+    while True:
+        time.sleep(2)
+        if time.time() - REMOTE_WANTED[0] > 10:
+            continue
+        with BOARD_LOCK:
+            remotes = load_board()["remotes"]
+        for r in remotes:
+            remote_fetch(r)
+
+
+@locked
+def remote_set(url, token, ssh):
+    """Подключить узел (пустой url — отключить). Пока узел один, зовётся cloud."""
+    board = load_board()
+    if not token and board["remotes"]:
+        token = board["remotes"][0].get("token", "")  # правят адрес/ssh — токен прежний
+    board["remotes"] = []
+    REMOTE.clear()
+    ok = True
+    if url:
+        r = {"name": "cloud", "url": url.rstrip("/"), "token": token, "ssh": ssh}
+        ok = remote_fetch(r)  # заодно проверка адреса и токена
+        if ok:
+            board["remotes"] = [r]
+    save_board(board)
+    return ok
+
+
+def merge_remotes(board, agents, workspaces):
+    """Дописать карточки и папки узлов; вернуть сводку по узлам для фронта."""
+    REMOTE_WANTED[0] = time.time()
+    out = []
+    for r in board["remotes"]:
+        hit = REMOTE.get(r["name"])
+        d = hit["data"] if hit else {}
+        out.append({"name": r["name"], "url": r["url"], "ssh": r.get("ssh", ""),
+                    "loaded": bool(hit),
+                    "ok": bool(hit) and time.time() - hit["at"] < 20,
+                    "claude": d.get("claude", False), "codex": d.get("codex", False),
+                    "cursor": d.get("cursor", False), "opencode": d.get("opencode", False),
+                    "providers": d.get("providers")})
+        # имена tmux-сессий у узла свои — префикс, чтобы не совпали с локальными
+        agents += [dict(a, name=r["name"] + "/" + a["name"], host=r["name"])
+                   for a in d.get("agents", [])]
+        workspaces += [dict(w, host=r["name"]) for w in d.get("workspaces", [])]
+    return out
 
 
 # ---------- живые агенты (tmux) ----------
@@ -1605,9 +1790,11 @@ def get_agents():
         page = int(os.stat(os.path.join(HERE, "index.html")).st_mtime)
     except OSError:
         page = 0
-    return {"workspaces": [dict(w, logo=logo_version(w["cwd"]))
-                           for w in board["workspaces"]],
+    workspaces = [dict(w, logo=logo_version(w["cwd"])) for w in board["workspaces"]]
+    remotes = merge_remotes(board, agents, workspaces)
+    return {"workspaces": workspaces,
             "agents": agents, "page": page,
+            "headless": HEADLESS, "remotes": remotes,
             "claude": os.path.exists(CLAUDE),
             "codex": os.path.exists(CODEX),
             "cursor": os.path.exists(CURSOR),
@@ -1682,11 +1869,14 @@ def agent_models(agent):
         elif agent == "codex":
             ms = (modelsdev().get("openai") or {}).get("models", {})
             for mid, m in sorted(ms.items(), reverse=True):
-                if "codex" in mid or mid.startswith("gpt-5"):
+                if "codex" in mid or mid.startswith(("gpt-5", "gpt-6")):
                     out.append({"id": mid, "l": m.get("name") or mid,
-                                "def": mid == "gpt-5.6-sol"})
+                                "def": mid == "gpt-6-astra"})
+            if not any(m["id"] == "gpt-6-astra" for m in out):
+                out.insert(0, {"id": "gpt-6-astra", "l": "GPT-6 Astra",
+                               "def": True})
         elif agent == "claude":
-            out = [{"id": "fable", "l": "Fable 5", "def": True},
+            out = [{"id": "fable", "l": "Fable 5.1", "def": True},
                    {"id": "opus", "l": "Opus 4.8", "def": False},
                    {"id": "sonnet", "l": "Sonnet 5", "def": False},
                    {"id": "haiku", "l": "Haiku 4.5", "def": False}]
@@ -1717,12 +1907,32 @@ def pre_trust(agent, cwd):
             if not ok or not cfg:  # нет файла — claude ещё не запускали, не лезем
                 return
             proj = cfg.setdefault("projects", {}).setdefault(cwd, {})
-            if not proj.get("hasTrustDialogAccepted"):
+            # на узле агенты доски идут с --dangerously-skip-permissions —
+            # принимаем одноразовый диалог согласия, иначе тихий старт виснет.
+            # Мастер первого запуска (тема, способ входа) — тоже: на узле его
+            # некому пройти, а логин сделан отдельно (claude auth status)
+            if not proj.get("hasTrustDialogAccepted") or not cfg.get("hasCompletedOnboarding") \
+                    or (HEADLESS and not cfg.get("bypassPermissionsModeAccepted")):
                 proj["hasTrustDialogAccepted"] = True
+                cfg["hasCompletedOnboarding"] = True
+                if HEADLESS:
+                    cfg["bypassPermissionsModeAccepted"] = True
                 tmp = CLAUDE_JSON + ".agentboard-tmp"
                 with open(tmp, "w") as f:
                     json.dump(cfg, f, ensure_ascii=False, indent=2)
                 os.replace(tmp, CLAUDE_JSON)
+            # с 2.1.28x согласие на bypass лежит в settings.json (туда же пишем хуки);
+            # тема — чтобы мастер первого запуска не спрашивал её на узле
+            st, ok = _read_json(CLAUDE_SETTINGS)
+            if HEADLESS and ok and not st.get("skipDangerousModePermissionPrompt"):
+                st["skipDangerousModePermissionPrompt"] = True
+                st.setdefault("theme", "dark")
+                tmp = CLAUDE_SETTINGS + ".tmp"
+                os.makedirs(os.path.dirname(CLAUDE_SETTINGS), exist_ok=True)
+                with open(tmp, "w") as f:
+                    json.dump(st, f, ensure_ascii=False, indent=2)
+                    f.write("\n")
+                os.replace(tmp, CLAUDE_SETTINGS)
         elif agent == "codex":
             mark = f'[projects."{cwd}"]'
             try:
@@ -1747,6 +1957,12 @@ def pre_trust(agent, cwd):
         pass  # не вышло — агент просто спросит сам, как раньше
 
 
+# на узле диалог разрешения нечем нажать (терминала нет, с телефона — тем более),
+# поэтому codex там идёт без вопросов, как клод с --dangerously-skip-permissions
+CODEX_BYPASS = "--dangerously-bypass-approvals-and-sandbox" if HEADLESS else ""
+CLAUDE_BYPASS = ["--dangerously-skip-permissions"] if HEADLESS else []  # на маке спросит сам
+
+
 def free_name(base):
     name, i = base, 2
     while tmux_ok("has-session", "-t", name):
@@ -1755,9 +1971,12 @@ def free_name(base):
     return name
 
 
-def open_in_terminal(name):
+def open_in_terminal(name, ssh=""):
+    """Терминал с tmux-сессией агента. ssh — сессия живёт на узле: цепляемся через него."""
+    if HEADLESS:
+        return  # на сервере терминала нет — разговор открывают диалогом в браузере
     # уже подключён терминал? — поднимаем его окно, а не плодим дубль
-    ttys = tmux("list-clients", "-t", name, "-F", "#{client_tty}").split()
+    ttys = [] if ssh else tmux("list-clients", "-t", name, "-F", "#{client_tty}").split()
     if ttys:
         script = (
             'tell application "Terminal"\n'
@@ -1778,11 +1997,13 @@ def open_in_terminal(name):
     # do script «печатает» команду в интерактивный zsh, и rc-хуки (oh-my-zsh,
     # p10k) могут съесть первый символ своим промптом (tmux → mux).
     # .command-файл Terminal исполняет напрямую, без набора текста и без zshrc.
-    safe = re.sub(r"[^\w.-]", "_", name)
+    safe = re.sub(r"[^\w.-]", "_", (ssh + "-" if ssh else "") + name)
     path = os.path.join(tempfile.gettempdir(), f"agentboard-{safe}.command")
+    attach = " ".join(shlex.quote(a) for a in TMUX_CMD) + f" attach -t {shlex.quote(name)}"
+    if ssh:
+        attach = f"ssh -t {shlex.quote(ssh)} {shlex.quote('tmux attach -t ' + shlex.quote(name))}"
     with open(path, "w") as f:
-        f.write("#!/bin/sh\nexec " + " ".join(shlex.quote(a) for a in TMUX_CMD)
-                + f" attach -t {shlex.quote(name)}\n")
+        f.write("#!/bin/sh\nexec " + attach + "\n")
     os.chmod(path, 0o755)
     subprocess.run(["open", "-a", "Terminal", path], capture_output=True, timeout=10)
     subprocess.run(["osascript", "-e", 'tell application "Terminal" to activate'],
@@ -1801,10 +2022,11 @@ def resume_card(cid):
         open_in_terminal(card["tmux"])
         return True
     name = free_name(card["project"])
+    pre_trust(card.get("agent", "claude"), card["cwd"])
     if card.get("agent") == "codex":
-        cmd = f"{CODEX} resume {shlex.quote(cid)}"
+        cmd = " ".join([CODEX, *CODEX_BYPASS.split(), "resume", shlex.quote(cid)])
     else:
-        cmd = f"{CLAUDE} --resume {shlex.quote(cid)}"
+        cmd = " ".join([CLAUDE, "--resume", shlex.quote(cid), *CLAUDE_BYPASS])
     tmux("new-session", "-d", "-s", name, "-x", "220", "-y", "50", "-c", card["cwd"],
          f"export PATH={shlex.quote(AGENT_PATH)}; {cmd}")
     tmux("set-option", "-t", name, "mouse", "on")
@@ -1893,6 +2115,28 @@ def list_dirs():
     return out
 
 
+def clone_repo(url):
+    """git clone в первую папку из AGENTBOARD_DIRS — так проект попадает на узел."""
+    bases = os.environ.get("AGENTBOARD_DIRS", "~/Documents/dev:~/Documents")
+    base = os.path.expanduser(bases.split(":")[0])
+    name = re.sub(r"\.git$", "", re.split(r"[/:]", url.strip().rstrip("/"))[-1])
+    if not re.fullmatch(r"[\w.-]+", name):
+        return {"error": "bad url"}
+    dest = os.path.join(base, name)
+    if not os.path.isdir(dest):
+        os.makedirs(base, exist_ok=True)
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0",  # без tty вопросы git вешают клон
+                   GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new")
+        try:
+            r = subprocess.run(["git", "clone", "--", url.strip(), dest],
+                               capture_output=True, text=True, timeout=110, env=env)
+        except Exception as e:
+            return {"error": str(e)[:300]}
+        if r.returncode != 0:
+            return {"error": r.stderr.strip()[-300:]}
+    return {"cwd": dest, "project": name}
+
+
 def name_tail(name, agent="claude", cwd=""):
     """Хвост к первому сообщению агенту: он сам придумывает имя карточке.
     Сигнал — файл в NAMES_DIR (его подберёт get_agents), парсинга вывода нет.
@@ -1921,7 +2165,7 @@ def new_agent(cwd, project, prompt="", agent="claude", model="", effort=""):
     os.makedirs(NAMES_DIR, exist_ok=True)
     pre_trust(agent, cwd)
     if agent == "codex":
-        parts = [CODEX]
+        parts = [CODEX] + CODEX_BYPASS.split()
         if model:
             parts += ["-m", model]
         if effort:
@@ -1935,7 +2179,7 @@ def new_agent(cwd, project, prompt="", agent="claude", model="", effort=""):
         if model:
             parts += ["-m", model]
     else:
-        parts = [CLAUDE]
+        parts = [CLAUDE, *CLAUDE_BYPASS]
         if model:
             parts += ["--model", model]
         # разрешение ровно на команду имени — чтобы claude не спрашивал подтверждение
@@ -1978,18 +2222,50 @@ def claim_naming(name):
     return card
 
 
+AGENT_INPUT_LOCKS = {}  # ввод из Telegram и веба не должен перемешиваться
+
+
+def paste_to_agent(name, text):
+    """Bracketed paste: Codex получает одну вставку, а не поток нажатий клавиш.
+    Его детектор быстрого ввода мог поглотить следующий Enter как часть текста.
+    Текст идёт через stdin; отдельный буфер не затрагивает буфер обмена юзера."""
+    buffer = f"agentboard-input-{os.getpid()}-{threading.get_ident()}"
+    try:
+        result = subprocess.run([*TMUX_CMD, "load-buffer", "-b", buffer, "-"],
+                                input=text, text=True, capture_output=True, timeout=5)
+        if result.returncode:
+            return False
+        return tmux_ok("paste-buffer", "-d", "-p", "-r", "-b", buffer, "-t", name)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    finally:
+        tmux("delete-buffer", "-b", buffer)  # убираем и при неудачной вставке
+
+
 def send_to_agent(name, text):
     """Кинуть сообщение агенту в терминал, не открывая его."""
-    if not text.strip() or not tmux_ok("has-session", "-t", name):
+    if not text.strip():
         return False
-    card = claim_naming(name)
-    if card:
-        text = (text.rstrip() + " " +
-                name_tail(name, card.get("agent", "claude"), card.get("cwd", "")))
-    tmux("send-keys", "-t", name, "-l", "--", text)
-    time.sleep(0.4)  # иначе TUI считает ввод вставкой и Enter не отправляет
-    tmux("send-keys", "-t", name, "Enter")
-    return True
+    with BOARD_LOCK:
+        lock = AGENT_INPUT_LOCKS.setdefault(name, threading.Lock())
+    with lock:
+        if not tmux_ok("has-session", "-t", name):
+            return False
+        with BOARD_LOCK:
+            agent = next((c.get("agent", "claude") for c in load_board()["cards"]
+                          if c.get("tmux") == name), "claude")
+        card = claim_naming(name)
+        if card:
+            text = (text.rstrip() + " " +
+                    name_tail(name, card.get("agent", "claude"), card.get("cwd", "")))
+        if agent == "codex":
+            pasted = paste_to_agent(name, text)
+        else:
+            pasted = tmux_ok("send-keys", "-t", name, "-l", "--", text)
+        if not pasted:
+            return False
+        time.sleep(0.4)  # дать TUI обработать вставку перед отдельным Enter
+        return tmux_ok("send-keys", "-t", name, "Enter")
 
 
 def stop_agent(name):
@@ -2074,26 +2350,90 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def send(self, code, body, ctype="application/json; charset=utf-8"):
+    def send(self, code, body, ctype="application/json; charset=utf-8", cookie=""):
         data = body if isinstance(body, bytes) else body.encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.end_headers()
         self.wfile.write(data)
 
     def ok(self, good=True):
         self.send(200 if good else 404, json.dumps({"ok": bool(good)}))
 
+    def authed(self):
+        """Пускаем по Bearer-токену (другая доска) или по cookie после входа (браузер)."""
+        same = hmac.compare_digest
+        bearer = self.headers.get("Authorization", "")
+        if same(bearer.encode(), ("Bearer " + TOKEN).encode()):
+            return True
+        # cookie браузер шлёт и по чужой ссылке/картинке, а свой заголовок чужая
+        # страница поставить не может (CORS) — без него cookie не считается.
+        # Исключение — лого: его грузит <img>, и оно только читает
+        if not self.headers.get("X-AB") and not self.path.startswith("/api/logo?"):
+            return False
+        want = "ab=" + TOKEN_HASH
+        return any(same(c.strip().encode(), want.encode())
+                   for c in self.headers.get("Cookie", "").split(";"))
+
+    def login(self):
+        # токен едет заголовком, а не в адресе — адреса оседают в логах nginx
+        if not hmac.compare_digest(self.headers.get("X-Token", "").encode(), TOKEN.encode()):
+            time.sleep(1)  # перебор в лоб не разгонится
+            self.send(401, '{"error": "auth"}')
+            return
+        # Strict: чужая страница не дёрнет /api с нашей cookie ни ссылкой, ни картинкой
+        secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        self.send(200, '{"ok": true}', cookie=(
+            f"ab={TOKEN_HASH}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Strict{secure}"))
+
+    def proxy(self, host, url, q):
+        """Действие над карточкой узла: тот же запрос уходит его доске."""
+        with BOARD_LOCK:
+            r = next((r for r in load_board()["remotes"] if r["name"] == host), None)
+        if not r:
+            self.ok(False)
+            return
+        args = {k: v[0] for k, v in q.items() if k != "host"}
+        for k in ("s", "tmux"):  # у нас имена карточек узла с префиксом «узел/»
+            if args.get(k, "").startswith(host + "/"):
+                args[k] = args[k][len(host) + 1:]
+        if url.path == "/api/open":  # терминал открываем у себя: ssh на узел + tmux attach
+            if r.get("ssh") and args.get("s"):
+                open_in_terminal(args["s"], r["ssh"])
+            self.ok(bool(r.get("ssh")))
+            return
+        try:
+            with remote_get(r, url.path + "?" + urlencode(args), timeout=120) as resp:
+                self.send(resp.status, resp.read(),
+                          resp.headers.get("Content-Type", "application/json"))
+        except urllib.error.HTTPError as e:
+            self.send(e.code, e.read())
+        except Exception:
+            self.send(502, '{"ok": false}')
+
     def do_GET(self):
-        if "/api/agents" not in self.path:  # агентов опрашивают каждые 2с — не шумим
+        # агентов опрашивают каждые 2с — не шумим; в remote_set едет токен узла
+        if "/api/agents" not in self.path and "/api/remote_set" not in self.path:
             self.log_access()
         url = urlparse(self.path)
         q = parse_qs(url.query)
 
         def arg(k):
             return (q.get(k) or [""])[0]
+
+        if TOKEN and url.path.startswith("/api/") and not self.authed():
+            if url.path == "/api/login":
+                self.login()
+            else:
+                self.send(401, '{"error": "auth"}')
+            return
+        if arg("host") and url.path.startswith("/api/"):
+            self.proxy(arg("host"), url, q)
+            return
 
         if url.path == "/":
             with open(os.path.join(HERE, "index.html"), "rb") as f:
@@ -2116,6 +2456,17 @@ class Handler(BaseHTTPRequestHandler):
                                   arg("model"), arg("effort")))
         elif url.path == "/api/send":
             self.ok(send_to_agent(arg("s"), arg("text")))
+        elif url.path == "/api/key":
+            self.ok(send_key(arg("s"), arg("k")))
+        elif url.path == "/api/dialog":
+            d = get_dialog(arg("s"), arg("id"), arg("active") != "0")
+            self.send(200 if d else 404, json.dumps(d or {"ok": False}))
+        elif url.path == "/api/login":
+            self.ok()  # уже вошли (или токен не задан)
+        elif url.path == "/api/remote_set":
+            self.ok(remote_set(arg("url"), arg("token"), arg("ssh")))
+        elif url.path == "/api/clone":
+            self.send(200, json.dumps(clone_repo(arg("url"))))
         elif url.path == "/api/open":
             if tmux_ok("has-session", "-t", arg("s")):
                 open_in_terminal(arg("s"))
@@ -2260,8 +2611,9 @@ def self_update():
     """git pull и перезапуск процесса. launchd/терминал переживают execv."""
     # бандл (.app) не git-чекаут — ведём юзера за свежим DMG на релизы
     if not os.path.isdir(os.path.join(HERE, ".git")):
-        subprocess.run(["open", "https://github.com/mikky-a/agentboard/releases/latest"],
-                       capture_output=True, timeout=10)
+        if not HEADLESS:
+            subprocess.run(["open", "https://github.com/mikky-a/agentboard/releases/latest"],
+                           capture_output=True, timeout=10)
         return False
     try:
         r = subprocess.run(["git", "-C", HERE, "pull", "--ff-only"],
@@ -2283,11 +2635,785 @@ def caffeinate_watcher():
             get_live()
 
 
+# ---------- уведомления в Telegram: агент на узле закончил или ждёт ----------
+# Сигнал — файл статуса от хука (Stop → idle, PermissionRequest → waiting),
+# тот же, по которому красится карточка. Имя и хвост ответа берём из get_agents.
+# Канал двусторонний: реплай на уведомление (или сообщение с @именем сессии)
+# уходит агенту в терминал — см. tg_listener. getUpdates у телеграма монопольный,
+# поэтому доске нужен свой бот: чужого (общего с другим ассистентом) не слушаем.
+
+# Токен и чат — из env сервиса или из telegram.json в папке данных: на узле
+# env лежит в root-only файле, а бота хочется менять без sudo. Файл главнее.
+try:
+    with open(os.path.join(DATA_DIR, "telegram.json")) as _f:
+        _tg = json.load(_f)
+except Exception:
+    _tg = {}
+TG_TOKEN = _tg.get("token") or os.environ.get("AGENTBOARD_TG_TOKEN", "")
+TG_CHAT = str(_tg.get("chat") or os.environ.get("AGENTBOARD_TG_CHAT", ""))
+TG_FROM = "telegram.json" if _tg.get("token") else "env"  # откуда токен — в лог при старте
+PUBLIC_URL = os.environ.get("AGENTBOARD_URL", "").rstrip("/")  # адрес доски для ссылок
+TG_TAG_RE = re.compile(r"(?<![\w@])@([\w-]+)")  # @имя tmux-сессии в тексте (без e-mail)
+TG_SENT = {}  # message_id уведомления -> tmux-сессия: реплай на любой кусок длинного ответа
+NOTIFY_STATE = os.path.join(DATA_DIR, "notifier.json")  # маркеры «о чём уже сказали» — переживают перезапуск
+TG_QUEUE_FILE = os.path.join(DATA_DIR, "tg-queue.json")  # недоставленные уведомления — тоже
+FRESH_WINDOW = 900  # сек: после перезапуска досказываем только то, что случилось недавно
+TG_LAST_FILE = os.path.join(DATA_DIR, "tg-last.json")  # чьё уведомление пришло последним и кому писал юзер
+TG_LAST_LOCK = threading.Lock()
+
+
+def tg_last_load():
+    """Адресат сообщений без @имени — сессия последнего уведомления; переживает перезапуск."""
+    try:
+        with open(TG_LAST_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        return {"from": str(d.get("from") or ""), "to": str(d.get("to") or "")}
+    except (OSError, ValueError, AttributeError):
+        return {"from": "", "to": ""}
+
+
+TG_LAST = tg_last_load()
+
+
+def tg_last_set(key, name):
+    """from — чьё уведомление доставлено последним, to — куда ушло последнее сообщение юзера."""
+    with TG_LAST_LOCK:
+        if TG_LAST.get(key) == name:
+            return
+        TG_LAST[key] = name
+        try:
+            tmp = TG_LAST_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(TG_LAST, f)
+            os.replace(tmp, TG_LAST_FILE)
+        except OSError as e:
+            tg_log(f"tg-last: {e}")
+
+
+def tg_log(msg):
+    print("tg:", msg, flush=True)
+
+
+def tg_api(method, http_timeout=15, **params):
+    """Вызов Bot API; результат или исключение (urllib.error.HTTPError с кодом)."""
+    data = urlencode({k: v for k, v in params.items() if v is not None}).encode()
+    req = urllib.request.Request(f"https://api.telegram.org/bot{TG_TOKEN}/{method}", data=data)
+    with urllib.request.urlopen(req, timeout=http_timeout) as r:
+        return json.load(r).get("result")
+
+
+def tg_entities(text):
+    """@имена сессий — моноширинным, иначе телеграм делает из них ссылки на чужих
+    юзеров. Смещения у Bot API считаются в UTF-16."""
+    ents = []
+    for m in TG_TAG_RE.finditer(text):
+        ents.append({"type": "code",
+                     "offset": len(text[:m.start()].encode("utf-16-le")) // 2,
+                     "length": len(m.group(0).encode("utf-16-le")) // 2})
+    return json.dumps(ents) if ents else None
+
+
+def tg_post(text, reply_to=None):
+    """Одно сообщение; вернёт его message_id (None — не дошло)."""
+    try:
+        r = tg_api("sendMessage", chat_id=TG_CHAT, text=text, entities=tg_entities(text),
+                   reply_to_message_id=reply_to, allow_sending_without_reply="true",
+                   disable_web_page_preview="true")
+        return (r or {}).get("message_id")
+    except urllib.error.HTTPError as e:
+        tg_log(f"sendMessage: {e}")
+        return False if 400 <= e.code < 500 and e.code != 429 else None  # False — повторять бессмысленно
+    except Exception as e:
+        tg_log(f"sendMessage: {e}")  # сеть/5xx: уведомления доставит очередь с повторами
+        return None
+
+
+def tg_chunks(text, limit=3900):
+    """Ответ уходит целиком: длиннее лимита телеграма (4096) — несколькими
+    сообщениями, режем по абзацам, абзац-простыню — по строке или слову."""
+    parts = []
+    for p in text.split("\n\n"):
+        while len(p) > limit:
+            cut = max(p.rfind("\n", 0, limit), p.rfind(" ", 0, limit))
+            cut = cut if cut > 0 else limit
+            parts.append(p[:cut])
+            p = p[cut:].lstrip()
+        parts.append(p)
+    chunks, cur = [], ""
+    for p in parts:
+        if cur and len(cur) + 2 + len(p) > limit:
+            chunks.append(cur)
+            cur = p
+        else:
+            cur = cur + "\n\n" + p if cur else p
+    return chunks + ([cur] if cur else [])
+
+
+def tg_send(text):
+    """Сразу, без повторов; вернёт message_id всех кусков."""
+    ids = [tg_post(c) for c in tg_chunks(text)]
+    return [i for i in ids if i]
+
+
+TG_QUEUE = []  # очередь уведомлений: [[tmux-сессия, [куски]]], доставляется по порядку
+TG_QUEUE_CV = threading.Condition()
+TG_CODEX_CURSORS = {}  # rollout -> позиция; коммитится атомарно вместе с очередью
+TG_CODEX_INITIALIZED = False
+
+
+def tg_queue_save():
+    """Под TG_QUEUE_CV. Перезапуск доски посреди сбоя Telegram не теряет очередь."""
+    try:
+        tmp = TG_QUEUE_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"queue": TG_QUEUE, "codex_cursors": TG_CODEX_CURSORS,
+                       "codex_initialized": TG_CODEX_INITIALIZED}, f, ensure_ascii=False)
+        os.replace(tmp, TG_QUEUE_FILE)
+        return True
+    except OSError as e:
+        tg_log(f"не записал {TG_QUEUE_FILE}: {e}")
+        return False
+
+
+def tg_queue_load():
+    global TG_CODEX_INITIALIZED
+    try:
+        with open(TG_QUEUE_FILE) as f:
+            saved = json.load(f)
+        items = saved.get("queue", []) if isinstance(saved, dict) else saved
+        with TG_QUEUE_CV:
+            TG_QUEUE[:] = [[n, list(c)] for n, c in items if isinstance(c, list) and c] + TG_QUEUE
+            if isinstance(saved, dict):
+                TG_CODEX_CURSORS.update(saved.get("codex_cursors", {}))
+                TG_CODEX_INITIALIZED = saved.get("codex_initialized", False)
+    except (OSError, ValueError, TypeError):
+        return
+    if TG_QUEUE:
+        tg_log(f"в очереди с прошлого запуска: {len(TG_QUEUE)}")
+
+
+def tg_enqueue(name, text):
+    with TG_QUEUE_CV:
+        TG_QUEUE.append([name, tg_chunks(text)])
+        tg_queue_save()
+        TG_QUEUE_CV.notify()
+
+
+def tg_sender():
+    """Доставка уведомлений с повторами. Telegram временами отдаёт 502 и таймауты по
+    несколько минут подряд — с одной попытки ответ агента просто терялся, а в журнале
+    значился отправленным. Куски одного ответа идут по порядку, следующий — только
+    после доставки предыдущего; после получаса попыток уведомление бросаем."""
+    while True:
+        with TG_QUEUE_CV:
+            while not TG_QUEUE:
+                TG_QUEUE_CV.wait()
+            name, chunks = TG_QUEUE[0]
+        delay, started, total = 5, time.time(), len(chunks)
+        while chunks:
+            mid = tg_post(chunks[0])
+            if mid:
+                TG_SENT[mid] = name
+                tg_last_set("from", name)
+                delay = 5
+                with TG_QUEUE_CV:
+                    chunks.pop(0)
+                    tg_queue_save()
+            elif mid is False:
+                tg_log(f"уведомление @{name}: кусок отвергнут, пропускаем")
+                with TG_QUEUE_CV:
+                    chunks.pop(0)
+                    tg_queue_save()
+            elif time.time() - started > 1800:
+                tg_log(f"уведомление @{name}: не доставлено за 30 мин, бросаем")
+                break
+            else:
+                tg_log(f"уведомление @{name}: повтор через {delay} с")
+                time.sleep(delay)
+                delay = min(delay * 2, 120)
+        with TG_QUEUE_CV:
+            TG_QUEUE.pop(0)
+            tg_queue_save()
+        if not chunks:
+            tg_log(f"уведомление @{name} доставлено" + (f" ({total} сообщ.)" if total > 1 else ""))
+
+
+def strip_md(text):
+    """Без markdown-звёздочек и решёток: телеграм их не красит."""
+    return re.sub(r"\*\*|`+|^#+\s*", "", text, flags=re.M)
+
+
+def notify_text(preview):
+    """Фолбэк для карточек без лога: ответ агента из превью, без реплик юзера
+    и тул-вызовов."""
+    paras = [p.strip() for p in re.split(r"\n\s*\n", preview) if p.strip()]
+    return strip_md("\n\n".join(p for p in paras if not p.startswith(("> ", "⏺ "))))
+
+
+def last_reply(path):
+    """Текст ПОСЛЕДНЕГО хода клода по логу: все text-блоки ассистента после последней
+    реплики, начавшей ход (юзер, таймер, уведомление фоновой задачи). Превью карточки
+    для этого не годится: его хвост тянет и прошлые ответы, в телеграме они выглядят
+    как дубли. Ответ не режем — tg_send сам разложит длинный по сообщениям. Хвост
+    файла читаем с запасом и расширяем, пока не найдём начало хода."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return ""
+    tail = 4 << 20
+    while True:
+        try:
+            with open(path, "rb") as f:
+                f.seek(max(0, size - tail))
+                lines = f.read().split(b"\n")
+        except OSError:
+            return ""
+        chunks, started = [], False
+        for line in reversed(lines):
+            if b'"type":"assistant"' not in line and b'"type":"user"' not in line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if rec.get("isSidechain"):
+                continue
+            content = (rec.get("message") or {}).get("content")
+            if rec.get("type") == "user":
+                blocks = content if isinstance(content, list) else [{"type": "text"}]
+                if any(isinstance(b, dict) and b.get("type") != "tool_result" for b in blocks):
+                    started = True
+                    break  # начало хода
+                continue
+            if rec.get("type") == "assistant" and isinstance(content, list):
+                for b in reversed(content):
+                    if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip():
+                        chunks.append(b["text"].strip())
+        if started or tail >= size or tail >= (64 << 20):
+            break
+        tail *= 4
+    return strip_md("\n\n".join(reversed(chunks)))
+
+
+def claude_logs():
+    """Живые карточки клода: tmux-сессия -> путь транскрипта (нужен известный id)."""
+    out = {}
+    for c in load_board()["cards"]:
+        name, sid = c.get("tmux"), c.get("id")
+        if not name or not sid or c.get("agent", "claude") != "claude":
+            continue
+        path = _sid_paths.get(sid) or session_file(c.get("cwd", ""), sid)
+        if os.path.exists(path):
+            out[name] = path
+    return out
+
+
+def last_turn_end(path, tail=65536):
+    """Конец последнего хода по логу: (timestamp записи turn_duration, сколько фоновых
+    сабагентов ещё работает). Хвоста файла хватает — запись пишется в самом конце хода."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, os.path.getsize(path) - tail))
+            lines = f.read().split(b"\n")
+    except OSError:
+        return "", 0
+    for line in reversed(lines):
+        if b'"subtype":"turn_duration"' not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        return rec.get("timestamp", ""), int(rec.get("pendingBackgroundAgentCount") or 0)
+    return "", 0
+
+
+def notify_state_load():
+    try:
+        with open(NOTIFY_STATE) as f:
+            st = json.load(f)
+        return st["told"], st["told_turn"], {k: tuple(v) for k, v in st.get("sent", {}).items()}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def notify_state_save(told, told_turn, sent):
+    try:
+        tmp = NOTIFY_STATE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"told": told, "told_turn": told_turn, "sent": sent}, f, ensure_ascii=False)
+        os.replace(tmp, NOTIFY_STATE)
+    except OSError as e:
+        tg_log(f"не записал {NOTIFY_STATE}: {e}")
+
+
+def iso_epoch(ts):
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return time.time()
+
+
+def codex_notification_records(path, cursor=None, bootstrap=False):
+    """Читаем только дописанные полные JSONL-записи, без ограничения длины ответа.
+    При первом включении пропускаем историю; оборванную строку дочитаем позже.
+    event_msg/item_completed дублирует response_item — его не отправляем."""
+    with open(path, "rb") as f:
+        st = os.fstat(f.fileno())
+        identity = {"dev": st.st_dev, "ino": st.st_ino}
+        if (cursor and all(cursor.get(k) == v for k, v in identity.items())
+                and 0 <= cursor.get("offset", -1) <= st.st_size):
+            offset = cursor["offset"]
+        elif bootstrap:
+            # Последний перевод строки: не теряем запись, которую CLI ещё пишет.
+            offset = st.st_size
+            while offset:
+                start = max(0, offset - 8192)
+                f.seek(start)
+                pos = f.read(offset - start).rfind(b"\n")
+                if pos >= 0:
+                    offset = start + pos + 1
+                    break
+                offset = start
+        else:
+            offset = 0
+        f.seek(offset)
+        records = []
+        while f.tell() < st.st_size:
+            line = f.readline()
+            if not line.endswith(b"\n"):
+                break
+            offset = f.tell()
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            pay = rec.get("payload") or {}
+            if (rec.get("type") != "response_item" or pay.get("type") != "message"
+                    or pay.get("role") != "assistant"
+                    or pay.get("channel") not in (None, "commentary", "final")):
+                continue
+            phase = pay.get("phase") or (
+                "commentary" if pay.get("channel") == "commentary" else "final_answer")
+            if phase not in ("commentary", "final_answer"):
+                continue
+            text = "\n\n".join(seg.get("text", "") for seg in pay.get("content", [])
+                               if isinstance(seg, dict)
+                               and seg.get("type") in ("output_text", "text")
+                               and isinstance(seg.get("text"), str)).strip()
+            if text:
+                records.append((rec.get("timestamp", ""), phase, strip_md(text)))
+    return records, dict(identity, offset=offset)
+
+
+def codex_notification_cards():
+    """Только главные, живые локальные сессии; форки сабагентов сюда не попадают."""
+    with BOARD_LOCK:
+        board = load_board()
+    live = set(tmux("list-sessions", "-F", "#{session_name}").split())
+    cards = [c for c in board["cards"] if c.get("agent") == "codex"
+             and c.get("tmux") in live and not c.get("host")]
+    if any(not c.get("rollout") for c in cards):
+        # Новый агент может появиться без открытого браузера: привязываем его лог.
+        get_agents()
+        with BOARD_LOCK:
+            board = load_board()
+        cards = [c for c in board["cards"] if c.get("agent") == "codex"
+                 and c.get("tmux") in live and not c.get("host")]
+    return [dict(c, label=c.get("label") or board["labels"].get(c.get("id"), ""))
+            for c in cards]
+
+
+def codex_notifications(now):
+    """Сообщения и курсор — одна запись на диск: перезапуск не ставит их в очередь снова."""
+    global TG_CODEX_INITIALIZED
+    cards = codex_notification_cards()
+    for card in cards:
+        path, name = card.get("rollout"), card["tmux"]
+        if not path or not log_valid("codex", path):
+            continue
+        previous = TG_CODEX_CURSORS.get(path)
+        try:
+            records, cursor = codex_notification_records(
+                path, previous, bootstrap=not TG_CODEX_INITIALIZED)
+        except OSError:
+            continue  # не двигаем курсор: следующий опрос повторит чтение
+        if cursor == previous:
+            continue
+        queued = []
+        watched = being_watched(name) if records else False
+        for timestamp, phase, tail in records:
+            if watched or not timestamp or now - iso_epoch(timestamp) > FRESH_WINDOW:
+                continue
+            project = card.get("project") or os.path.basename(card.get("cwd", "")) or name
+            label = card.get("label")
+            title = (label + " · " + project) if label else project
+            icon = "⏳ " if phase == "commentary" else "✅ "
+            text = icon + title + f" · @{name}\n\n" + tail
+            if PUBLIC_URL:
+                text += f"\n\n{PUBLIC_URL}/#card={quote(name)}"
+            queued.append([name, tg_chunks(text)])
+        with TG_QUEUE_CV:
+            old_len = len(TG_QUEUE)
+            TG_QUEUE.extend(queued)
+            TG_CODEX_CURSORS[path] = cursor
+            if not tg_queue_save():
+                del TG_QUEUE[old_len:]
+                if previous is None:
+                    TG_CODEX_CURSORS.pop(path, None)
+                else:
+                    TG_CODEX_CURSORS[path] = previous
+                continue
+            TG_QUEUE_CV.notify()
+        if queued:
+            tg_log(f"уведомления Codex @{name}: {len(queued)} → в очередь")
+    if not TG_CODEX_INITIALIZED:
+        with TG_QUEUE_CV:
+            TG_CODEX_INITIALIZED = True
+            if not tg_queue_save():
+                TG_CODEX_INITIALIZED = False
+    return {c["tmux"] for c in cards}
+
+
+def notifier():
+    # Маркеры «о чём уже сказали» живут на диске: раньше перезапуск доски глотал ход,
+    # закончившийся в эти же секунды — новый процесс считал его старым. Без файла
+    # (самый первый запуск) только запоминаем; с файлом — досказываем недавнее
+    state = notify_state_load()
+    quiet = state is None
+    told, told_turn, sent = state or ({}, {}, {})
+    # told: tmux-сессия -> mtime файла хука; told_turn: -> timestamp конца хода клода;
+    # sent: -> (статус, текст, когда) последнего уведомления — не дублим
+    while True:
+        time.sleep(1)
+        fresh, dirty, now = {}, False, time.time()
+        codex_names = codex_notifications(now)
+        # 1) файл статуса от хука — все CLI, idle и waiting
+        try:
+            names = os.listdir(STATUS_DIR)
+        except OSError:
+            names = []
+        for name in names:
+            status, at = hook_status(name)
+            if status in ("idle", "waiting") and told.get(name) != at:
+                told[name], dirty = at, True
+                # Codex сам сообщает commentary/final_answer через журнал.
+                # Stop не должен повторять ответ и весь хвост превью.
+                if (not quiet and now - at <= FRESH_WINDOW
+                        and not (name in codex_names and status == "idle")):
+                    fresh[name] = status
+        # 2) конец хода клода по его логу. Файл статуса для этого ненадёжен:
+        # фоновый сабагент (Agent tool) своими хуками перебивает idle на working
+        # через миллисекунды после Stop — ответ главного агента терялся
+        logs = claude_logs()
+        for name, path in logs.items():
+            turn, _ = last_turn_end(path)
+            if turn and told_turn.get(name) != turn:
+                told_turn[name], dirty = turn, True
+                if not quiet and now - iso_epoch(turn) <= FRESH_WINDOW:
+                    fresh.setdefault(name, "idle")
+        quiet = False
+        if dirty:
+            notify_state_save(told, told_turn, sent)
+        if not fresh:
+            continue
+        time.sleep(2)  # даём логу дописать последний ответ
+        try:
+            agents = {a["name"]: a for a in get_agents()["agents"]}
+        except Exception:
+            continue
+        for name, status in fresh.items():
+            a = agents.get(name)
+            if not a:
+                continue
+            if being_watched(name):  # и так видишь — не дёргаем
+                tg_log(f"@{name} {status}: смотрят на доске, не шлём")
+                continue
+            # текст — только последний ход; у не-клода (лога нет) — хвост превью
+            tail = last_reply(logs[name]) if name in logs else notify_text(a["preview"])
+            if status == "idle" and not tail:
+                tg_log(f"@{name} idle: ход без текста, не шлём")
+                continue
+            prev = sent.get(name)
+            if prev and prev[:2] == (status, tail) and time.time() - prev[2] < 600:
+                tg_log(f"@{name} {status}: тот же ответ уже отправлен, не шлём")
+                continue
+            text = ("🟡 " if status == "waiting" else "✅ ") + (a.get("label") or a["project"])
+            if a.get("label"):
+                text += " · " + a["project"]
+            text += f" · @{name}"  # адрес: по нему реплай вернётся в эту сессию
+            if tail:
+                text += "\n\n" + tail
+            turn, pending = last_turn_end(logs[name]) if name in logs else ("", 0)
+            if status == "idle" and pending:
+                text += f"\n\n⏳ фоновых сабагентов ещё работает: {pending} — карточка останется «работает»"
+            if PUBLIC_URL:
+                text += f"\n\n{PUBLIC_URL}/#card={quote(name)}"
+            tg_enqueue(name, text)
+            sent[name] = (status, tail, time.time())
+            tg_log(f"уведомление @{name} ({status}) → в очередь")
+            # оба маркера — на текущее состояние: один и тот же ответ виден и по
+            # файлу статуса, и по логу, второй раз о нём не говорим
+            st, at = hook_status(name)
+            if st in ("idle", "waiting"):
+                told[name] = at
+            if turn:
+                told_turn[name] = turn
+            notify_state_save(told, told_turn, sent)
+            if len(TG_SENT) > 2000:
+                for k in list(TG_SENT)[:1000]:
+                    TG_SENT.pop(k, None)
+
+
+# ---------- ответы из Telegram: реплай на уведомление → агенту в терминал ----------
+
+def tg_agents():
+    """Живые сессии узла: имя tmux -> карточка доски (label, project, status)."""
+    live = set(tmux("list-sessions", "-F", "#{session_name}").split())
+    try:
+        cards = get_agents()["agents"]
+    except Exception:
+        cards = []
+    found = {a["name"]: a for a in cards if a["name"] in live and not a.get("host")}
+    for name in live - set(found):
+        found[name] = {"name": name, "project": name, "status": ""}
+    return found
+
+
+def tg_resolve(tag, agents):
+    """@тег -> сессия: точно, без регистра, по уникальному началу, по имени карточки."""
+    if tag in agents:
+        return tag
+    low = tag.lower()
+    for pick in (lambda n, a: n.lower() == low,
+                 lambda n, a: n.lower().startswith(low),
+                 lambda n, a: low in (a.get("label") or "").lower()):
+        hits = [n for n, a in agents.items() if pick(n, a)]
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
+def tg_help(agents):
+    icon = {"waiting": "🟡", "working": "⏳", "idle": "✅"}
+    rows = [f"{icon.get(a.get('status'), '•')} @{n} · {a.get('label') or a.get('project') or n}"
+            for n, a in sorted(agents.items())]
+    return (("Сессии на узле:\n" + "\n".join(rows)) if rows else "Живых сессий на узле нет.") + (
+        "\n\nОтветить агенту — реплаем на его уведомление или сообщением с @именем; "
+        "без того и другого сообщение уйдёт сессии, приславшей последнее уведомление. "
+        "Картинки и файлы тоже можно, подпись уйдёт текстом. "
+        "Клавиши диалога: /enter /esc /up /down /tab.")
+
+
+def tg_target(msg, text, agents):
+    """Кому адресовано сообщение. Реплай — сессия из шапки уведомления (или из
+    памяти, если ответили на хвост длинного ответа), и только она: подставлять
+    похожую вместо умершей нельзя. Без реплая — @имя в тексте (тут можно и
+    неточно: по началу или по имени карточки). Без адреса — сессии, чьё
+    уведомление пришло последним; если её уже нет — единственной живой.
+    Когда адресат без адреса сменился, говорим юзеру, куда ушло. Вернёт (сессия, текст без тега, заметка): без сессии заметка —
+    ответ юзеру об ошибке, с сессией — куда именно ушло, если имя подобрали."""
+    rt = msg.get("reply_to_message") or {}
+    if rt:
+        name = TG_SENT.get(rt.get("message_id"))
+        if not name:
+            m = TG_TAG_RE.search((rt.get("text") or "").split("\n", 1)[0])
+            name = m.group(1) if m else ""
+        if not name:
+            return None, text, ("Это не уведомление доски. Ответь реплаем на уведомление "
+                                "или начни с @имени сессии.\n\n" + tg_help(agents))
+        if name not in agents:
+            return None, text, f"Сессии @{name} уже нет.\n\n" + tg_help(agents)
+        return name, text, ""
+    for m in TG_TAG_RE.finditer(text):
+        name = tg_resolve(m.group(1), agents)
+        if name:
+            body = (text[:m.start()] + text[m.end():]).strip()
+            note = "" if name == m.group(1) else f"→ @{name} · {agents[name].get('label') or name}"
+            return name, body, note
+    tags = TG_TAG_RE.findall(text)
+    if tags:
+        return None, text, f"Не знаю сессии @{tags[0]}.\n\n" + tg_help(agents)
+    last = TG_LAST.get("from")
+    if last in agents:
+        note = ("" if last == TG_LAST.get("to")
+                else f"→ @{last} · {agents[last].get('label') or last}")
+        return last, text, note
+    if len(agents) == 1:
+        return next(iter(agents)), text, ""
+    gone = f"Сессии @{last}, приславшей последнее уведомление, уже нет. " if last else ""
+    return None, text, (gone + "Кому это? Ответь реплаем на уведомление или начни "
+                        "с @имени сессии.\n\n" + tg_help(agents))
+
+
+def tg_react(mid, emoji="👍"):
+    try:
+        tg_api("setMessageReaction", chat_id=TG_CHAT, message_id=mid,
+               reaction=json.dumps([{"type": "emoji", "emoji": emoji}]))
+        return True
+    except Exception as e:
+        tg_log(f"setMessageReaction: {e}")
+        return False
+
+
+TG_MEDIA = ("photo", "document", "video", "animation", "audio", "voice", "video_note", "sticker")
+
+
+def tg_media(msg):
+    """Вложение сообщения: (file_id, имя файла) или None. У фото несколько размеров —
+    берём самый крупный; имя документа сохраняем, остальное называем по типу."""
+    for kind in TG_MEDIA:
+        v = msg.get(kind)
+        if not v:
+            continue
+        if kind == "photo":
+            best = max(v, key=lambda ph: ph.get("file_size") or 0)
+            return best["file_id"], "photo.jpg"
+        return v["file_id"], v.get("file_name") or kind
+    return None
+
+
+def tg_download(file_id, dest):
+    """Скачать файл телеграма (Bot API отдаёт до 20 МБ) в dest; расширение, если его
+    нет в имени, берём из пути на сервере телеграма. Вернёт итоговый путь или ''."""
+    try:
+        remote = (tg_api("getFile", file_id=file_id) or {}).get("file_path", "")
+        if not remote:
+            return ""
+        if not os.path.splitext(dest)[1] and os.path.splitext(remote)[1]:
+            dest += os.path.splitext(remote)[1]
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with urllib.request.urlopen(f"https://api.telegram.org/file/bot{TG_TOKEN}/{remote}",
+                                    timeout=120) as r, open(dest, "wb") as f:
+            shutil.copyfileobj(r, f)
+        return dest
+    except Exception as e:
+        tg_log(f"download: {e}")
+        return ""
+
+
+def tg_fetch(media, name):
+    """Вложение — в папку данных доски, не в проект (чтобы не мусорить в git):
+    DATA_DIR/inbox/<сессия>/<время>_<имя>. Агенту уходит путь."""
+    file_id, fname = media
+    fname = re.sub(r"[^\w.-]", "_", fname)[-80:] or "file"
+    dest = os.path.join(DATA_DIR, "inbox", name, time.strftime("%Y%m%d-%H%M%S") + "_" + fname)
+    return tg_download(file_id, dest)
+
+
+def tg_handle(msg):
+    """Входящее из телеграма. Только наш чат: бот публичный, команду агенту
+    может прислать кто угодно. /help — список сессий, /enter и т.п. — клавиши
+    TUI-диалога (как кнопки под диалогом на доске), остальное — текст агенту."""
+    if not msg or str((msg.get("chat") or {}).get("id")) != str(TG_CHAT):
+        return
+    text = (msg.get("text") or msg.get("caption") or "").strip()
+    mid = msg.get("message_id")
+    media = tg_media(msg)
+    if not text and not media:
+        return
+    if text.split("@")[0].lower() in ("/start", "/help", "/list", "/ls", "?"):
+        tg_post(tg_help(tg_agents()), reply_to=mid)
+        return
+    agents = tg_agents()
+    name, body, note = tg_target(msg, text, agents)
+    if not name:
+        tg_post(note, reply_to=mid)
+        return
+    if media:  # картинка или файл: сохраняем на узле, агенту — подпись и путь
+        path = tg_fetch(media, name)
+        if not path:
+            tg_post("Не смог скачать вложение: Bot API отдаёт файлы до 20 МБ.", reply_to=mid)
+            return
+        body = (body + "\n\n" if body else "") + f"Вложение из Telegram: {path}"
+    if not body:
+        tg_post(f"Пустое сообщение — что передать @{name}?", reply_to=mid)
+        return
+    if re.fullmatch(r"/(enter|esc|up|down|tab)", body.lower()):
+        ok = send_key(name, body[1:].lower())
+    else:
+        ok = send_to_agent(name, body)
+    tg_log(f"→ @{name}: {body[:60]!r}" + ("" if ok else " — не дошло"))
+    if ok:
+        tg_last_set("to", name)
+    if not ok:
+        tg_post(f"Не удалось передать сообщение в @{name}. Проверь сессию на доске.", reply_to=mid)
+    elif note:
+        tg_post(note, reply_to=mid)
+    elif not tg_react(mid):
+        tg_post(f"→ @{name}", reply_to=mid)
+
+
+def tg_listener():
+    """Длинный опрос getUpdates. Он монопольный: если бота слушает кто-то ещё
+    (webhook или чужой getUpdates — скажем, общий с другим ассистентом бот),
+    тихо выходим, не ломая ему опрос; уведомления при этом работают как раньше.
+    Признак чужого опроса — allowed_updates, которых мы не ставили."""
+    try:
+        info = tg_api("getWebhookInfo") or {}
+    except Exception as e:
+        tg_log(f"getWebhookInfo: {e}")
+        info = {}
+    allowed = info.get("allowed_updates") or []
+    if info.get("url") or (allowed and allowed != ["message"]):
+        tg_log("бота уже слушает другой процесс — ответы из Telegram выключены. "
+               "Заведи доске отдельного бота (@BotFather), токен в AGENTBOARD_TG_TOKEN")
+        return
+    tg_log(f"слушаю ответы из Telegram (токен из {TG_FROM}, чат {TG_CHAT})")
+    offset, backoff = None, 0
+    while True:
+        try:
+            updates = tg_api("getUpdates", http_timeout=70, offset=offset, timeout=50,
+                             allowed_updates='["message"]') or []
+            if backoff:
+                tg_log("снова слушаю ответы из Telegram")
+            backoff = 0
+        except urllib.error.HTTPError as e:
+            if e.code == 409:
+                # кто-то ещё спросил getUpdates у этого бота: разовая проверка токена
+                # в браузере или чужой постоянный опрос. Не сдаёмся навсегда — ждём
+                # всё дольше и пробуем снова; постоянному сопернику достаётся по
+                # одному 409 раз в полчаса, разовый вообще ничего не заметит
+                backoff = min(backoff * 2 or 60, 1800)
+                tg_log(f"409 Conflict: бота слушает кто-то ещё — пауза {backoff} с. "
+                       "Если это навсегда, второму процессу нужен свой бот")
+                time.sleep(backoff)
+                continue
+            if e.code == 401:
+                tg_log("401: токен бота не принят — ответы из Telegram выключены")
+                return
+            tg_log(f"getUpdates: {e}")
+            time.sleep(10)
+            continue
+        except Exception as e:
+            tg_log(f"getUpdates: {e}")  # сеть моргнула — пробуем дальше
+            time.sleep(5)
+            continue
+        for u in updates:
+            offset = u["update_id"] + 1
+            try:
+                tg_handle(u.get("message"))
+            except Exception as e:
+                tg_log(f"handle: {e}")
+
+
 if __name__ == "__main__":
+    # за обратным прокси доска слушает localhost, но открыта миру — по адресу
+    # AGENTBOARD_URL; без токена терминалы агентов достались бы любому прохожему
+    if not TOKEN and (HOST not in ("127.0.0.1", "localhost") or PUBLIC_URL):
+        sys.exit("! AGENTBOARD_HOST / AGENTBOARD_URL open the board to the network — "
+                 "set AGENTBOARD_TOKEN too")
     print(f"Agent Board → http://localhost:{PORT}")
     os.makedirs(NAMES_DIR, exist_ok=True)
     if not os.path.exists(TMUX):
         print("! tmux not found — install it: brew install tmux")
     threading.Thread(target=caffeinate_watcher, daemon=True).start()
     threading.Thread(target=update_checker, daemon=True).start()
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    threading.Thread(target=remote_poller, daemon=True).start()
+    if TG_TOKEN and TG_CHAT:
+        print(f"Telegram: бот {TG_TOKEN.split(':')[0]} ({TG_FROM}) → чат {TG_CHAT}")
+        tg_queue_load()  # до обоих потоков: сначала восстановить очередь и курсоры
+        threading.Thread(target=notifier, daemon=True).start()
+        threading.Thread(target=tg_sender, daemon=True).start()
+        threading.Thread(target=tg_listener, daemon=True).start()
+    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
