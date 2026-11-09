@@ -3245,6 +3245,8 @@ def tg_target(msg, text, agents):
     tags = TG_TAG_RE.findall(text)
     if tags:
         return None, text, f"Не знаю сессии @{tags[0]}.\n\n" + tg_help(agents)
+    if DUTY_DIR:  # без адреса — дежурному, он сам разберётся или позовёт других
+        return DUTY_NAME, text, ""
     last = TG_LAST.get("from")
     if last in agents:
         note = ("" if last == TG_LAST.get("to")
@@ -3333,6 +3335,60 @@ NEW_HELP = ("Новый агент: /new <проект> [codex] <задача>\n
             "Проекты: /projects")
 
 
+# Дежурный: сообщения без реплая и @имени идут ему. Живёт в своей папке со
+# своим CLAUDE.md (роль, команда board для других агентов). Пусто — выключен.
+DUTY_DIR = os.path.expanduser(os.environ.get("AGENTBOARD_DUTY_DIR", ""))
+DUTY_NAME = "duty"
+
+
+def tg_duty_start(body, mid):
+    """Дежурного нет в живых — поднять его с этим сообщением первой задачей."""
+    with BOARD_LOCK:
+        if tmux_ok("has-session", "-t", DUTY_NAME):
+            return send_to_agent(DUTY_NAME, body)
+        os.makedirs(DUTY_DIR, exist_ok=True)
+        try:
+            ok = new_agent(DUTY_DIR, DUTY_NAME, body, "claude")
+        except Exception as e:
+            tg_log(f"дежурный: {e}")
+            ok = False
+    if ok:
+        tg_log(f"дежурный запущен: {body[:60]!r}")
+        tg_last_set("to", DUTY_NAME)
+        tg_post("Дежурный проснулся и взял сообщение.", reply_to=mid)
+    return ok
+
+
+def tg_stop(msg, text, mid):
+    """/stop — реплаем на уведомление агента, /stop @имя или кнопки живых."""
+    agents = tg_agents()
+    arg = text.split(None, 1)[1].strip() if len(text.split(None, 1)) > 1 else ""
+    name = ""
+    if msg.get("reply_to_message"):
+        name, _, note = tg_target(msg, "", agents)
+        if not name:
+            tg_post(note, reply_to=mid)
+            return
+    elif arg:
+        name = tg_resolve(arg.lstrip("@"), agents)
+        if not name:
+            tg_post(f"Не знаю сессии {arg}.\n\n" + tg_help(agents), reply_to=mid)
+            return
+    if not name:
+        if not agents:
+            tg_post("Живых агентов нет.", reply_to=mid)
+            return
+        rows = [[{"text": f"/stop @{n}"}] for n in sorted(agents)]
+        tg_post("Кого остановить?", reply_to=mid,
+                markup={"keyboard": rows, "one_time_keyboard": True, "resize_keyboard": True})
+        return
+    ok = stop_agent(name)
+    tg_log(f"стоп @{name}: {'ok' if ok else 'не вышло'}")
+    tg_post(f"Остановил @{name}. Карточка на доске на паузе, разговор можно возобновить."
+            if ok else f"Не удалось остановить @{name}.", reply_to=mid,
+            markup={"remove_keyboard": True})
+
+
 TG_NEW_ASK = {}  # message_id вопроса «что сделать?» → проект
 
 
@@ -3418,6 +3474,9 @@ def tg_handle(msg):
         if cwd:
             tg_start(project, cwd, text, mid)
         return
+    if cmd == "/stop":
+        tg_stop(msg, text, mid)
+        return
     if cmd == "/projects":
         tg_post("Проекты: " + ", ".join(tg_projects()), reply_to=mid)
         return
@@ -3434,6 +3493,10 @@ def tg_handle(msg):
         body = (body + "\n\n" if body else "") + f"Вложение из Telegram: {path}"
     if not body:
         tg_post(f"Пустое сообщение — что передать @{name}?", reply_to=mid)
+        return
+    if name == DUTY_NAME and DUTY_DIR and name not in agents:
+        if not tg_duty_start(body, mid):
+            tg_post("Не удалось разбудить дежурного, посмотри журнал доски.", reply_to=mid)
         return
     if re.fullmatch(r"/(enter|esc|up|down|tab)", body.lower()):
         ok = send_key(name, body[1:].lower())

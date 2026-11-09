@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Управление доской из терминала (для дежурного агента и для рук).
+
+  board list                          живые агенты: имя, проект, статус, задача
+  board projects                      папки проектов
+  board new <проект> [codex] <задача> запустить агента в проекте
+  board send <имя> <текст>            написать агенту
+  board peek <имя> [строк]            хвост терминала агента
+  board stop <имя>                    остановить (карточка останется на паузе)
+
+Ходит в API доски на localhost; токен берёт из /etc/agentboard.env сам,
+наружу его не печатает.
+"""
+import json
+import os
+import subprocess
+import sys
+import urllib.parse
+import urllib.error
+import urllib.request
+
+ENV_FILE = os.environ.get("AGENTBOARD_ENV", "/etc/agentboard.env")
+
+
+def env():
+    out = {}
+    try:
+        with open(ENV_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    out[k] = v
+    except OSError:
+        pass
+    return out
+
+
+E = env()
+PORT = E.get("AGENTBOARD_PORT", "8787")
+TOKEN = E.get("AGENTBOARD_TOKEN", "")
+DIRS = E.get("AGENTBOARD_DIRS", "")
+
+
+def api(path, **params):
+    url = f"http://127.0.0.1:{PORT}/api/{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + TOKEN})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            body = r.read().decode()
+    except urllib.error.HTTPError as e:  # доска отвечает 404 на {"ok": false}
+        body = e.read().decode()
+    try:
+        return json.loads(body)
+    except ValueError:
+        return body
+
+
+def projects():
+    out = {}
+    for base in (os.path.expanduser(b) for b in DIRS.split(":") if b):
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            continue
+        for d in names:
+            p = os.path.join(base, d)
+            if os.path.isdir(p) and not d.startswith("."):
+                out.setdefault(d, p)
+    return out
+
+
+def live():
+    r = subprocess.run(["tmux", "list-sessions", "-F", "#{session_name}"],
+                       capture_output=True, text=True)
+    return set(r.stdout.split())
+
+
+def die(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return
+    cmd, args = argv[0], argv[1:]
+    if cmd == "list":
+        names = live()
+        agents = [a for a in api("agents").get("agents", []) if a.get("name") in names]
+        if not agents:
+            print("живых агентов нет")
+        for a in agents:
+            print(f"{a['name']}\t{a.get('project', '')}\t{a.get('status', '')}\t"
+                  f"{a.get('label') or a.get('title') or ''}")
+    elif cmd == "projects":
+        for n, p in projects().items():
+            print(f"{n}\t{p}")
+    elif cmd == "new":
+        if len(args) < 2:
+            die("board new <проект> [codex] <задача>")
+        ps = projects()
+        key = args[0].lower()
+        match = [n for n in ps if n.lower() == key] or [n for n in ps if n.lower().startswith(key)]
+        if len(match) != 1:
+            die("проект не найден или неоднозначен; есть: " + ", ".join(ps))
+        agent, rest = "claude", args[1:]
+        if rest[0].lower() in ("claude", "codex") and len(rest) > 1:
+            agent, rest = rest[0].lower(), rest[1:]
+        before = live()
+        r = api("new", cwd=ps[match[0]], project=match[0], prompt=" ".join(rest), agent=agent)
+        if not (isinstance(r, dict) and r.get("ok")):
+            die(f"не запустился: {r}")
+        new = sorted(live() - before)
+        print(f"запущен {new[0] if new else '?'} ({agent}) в {match[0]}")
+    elif cmd == "send":
+        if len(args) < 2:
+            die("board send <имя> <текст>")
+        r = api("send", s=args[0], text=" ".join(args[1:]))
+        print("отправлено" if isinstance(r, dict) and r.get("ok") else f"не дошло: {r}")
+    elif cmd == "peek":
+        if not args:
+            die("board peek <имя> [строк]")
+        n = int(args[1]) if len(args) > 1 else 40
+        r = subprocess.run(["tmux", "capture-pane", "-p", "-t", args[0], "-S", f"-{n}"],
+                           capture_output=True, text=True)
+        if r.returncode:
+            die(r.stderr.strip() or "нет такой сессии")
+        lines = [l for l in r.stdout.splitlines() if l.strip()]
+        print("\n".join(lines[-n:]))
+    elif cmd == "stop":
+        if not args:
+            die("board stop <имя>")
+        r = api("stop", s=args[0])
+        print("остановлен" if isinstance(r, dict) and r.get("ok") else f"не вышло: {r}")
+    else:
+        die(f"нет команды {cmd}; board help")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
