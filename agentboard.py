@@ -3213,7 +3213,8 @@ def tg_help(agents):
         "\n\nОтветить агенту — реплаем на его уведомление или сообщением с @именем; "
         "без того и другого сообщение уйдёт сессии, приславшей последнее уведомление. "
         "Картинки и файлы тоже можно, подпись уйдёт текстом. "
-        "Клавиши диалога: /enter /esc /up /down /tab.")
+        "Клавиши диалога: /enter /esc /up /down /tab." +
+        ("\n\nДежурный: /agent <текст>; ему же уходит всё, если неясно кому." if DUTY_DIR else ""))
 
 
 def tg_target(msg, text, agents):
@@ -3245,8 +3246,6 @@ def tg_target(msg, text, agents):
     tags = TG_TAG_RE.findall(text)
     if tags:
         return None, text, f"Не знаю сессии @{tags[0]}.\n\n" + tg_help(agents)
-    if DUTY_DIR:  # без адреса — дежурному, он сам разберётся или позовёт других
-        return DUTY_NAME, text, ""
     last = TG_LAST.get("from")
     if last in agents:
         note = ("" if last == TG_LAST.get("to")
@@ -3254,6 +3253,9 @@ def tg_target(msg, text, agents):
         return last, text, note
     if len(agents) == 1:
         return next(iter(agents)), text, ""
+    if DUTY_DIR:  # непонятно кому (или живых нет) — дежурному, он разберётся
+        return DUTY_NAME, text, ("" if DUTY_NAME in agents or not agents
+                                 else f"→ @{DUTY_NAME} · дежурный")
     gone = f"Сессии @{last}, приславшей последнее уведомление, уже нет. " if last else ""
     return None, text, (gone + "Кому это? Ответь реплаем на уведомление или начни "
                         "с @имени сессии.\n\n" + tg_help(agents))
@@ -3357,6 +3359,30 @@ def tg_duty_start(body, mid):
         tg_last_set("to", DUTY_NAME)
         tg_post("Дежурный проснулся и взял сообщение.", reply_to=mid)
     return ok
+
+
+DUTY_ASK = "Что передать дежурному?"
+
+
+def tg_duty(body, mid):
+    """/agent: сообщение дежурному — разбудить, если спит."""
+    if not DUTY_DIR:
+        tg_post("Дежурный не настроен (AGENTBOARD_DUTY_DIR).", reply_to=mid)
+        return
+    if not body:
+        tg_post(DUTY_ASK + " Ответь на это сообщение.",
+                markup={"force_reply": True, "input_field_placeholder": "сообщение дежурному"})
+        return
+    if tmux_ok("has-session", "-t", DUTY_NAME):
+        ok = send_to_agent(DUTY_NAME, body)
+        tg_log(f"→ @{DUTY_NAME}: {body[:60]!r}" + ("" if ok else " — не дошло"))
+        if ok:
+            tg_last_set("to", DUTY_NAME)
+            tg_react(mid)
+        else:
+            tg_post("Не удалось передать дежурному.", reply_to=mid)
+    elif not tg_duty_start(body, mid):
+        tg_post("Не удалось разбудить дежурного, посмотри журнал доски.", reply_to=mid)
 
 
 def tg_stop(msg, text, mid):
@@ -3473,6 +3499,13 @@ def tg_handle(msg):
         cwd = tg_projects().get(project)
         if cwd:
             tg_start(project, cwd, text, mid)
+        return
+    if cmd == "/agent" and not media:
+        tg_duty(text.split(None, 1)[1].strip() if len(text.split(None, 1)) > 1 else "", mid)
+        return
+    if ((msg.get("reply_to_message") or {}).get("text") or "").startswith(DUTY_ASK) \
+            and text and not media:
+        tg_duty(text, mid)
         return
     if cmd == "/stop":
         tg_stop(msg, text, mid)
