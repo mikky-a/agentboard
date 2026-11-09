@@ -1900,6 +1900,11 @@ CODEX_CONFIG = os.path.expanduser("~/.codex/config.toml")
 CURSOR_PROJECTS = os.path.expanduser("~/.cursor/projects")
 
 
+def _claude_skips():
+    # согласие на полный обход пишем, только если клод с ним и запускается
+    return "--dangerously-skip-permissions" in CLAUDE_BYPASS
+
+
 def pre_trust(agent, cwd):
     try:
         if agent == "claude":
@@ -1912,10 +1917,10 @@ def pre_trust(agent, cwd):
             # Мастер первого запуска (тема, способ входа) — тоже: на узле его
             # некому пройти, а логин сделан отдельно (claude auth status)
             if not proj.get("hasTrustDialogAccepted") or not cfg.get("hasCompletedOnboarding") \
-                    or (HEADLESS and not cfg.get("bypassPermissionsModeAccepted")):
+                    or (_claude_skips() and not cfg.get("bypassPermissionsModeAccepted")):
                 proj["hasTrustDialogAccepted"] = True
                 cfg["hasCompletedOnboarding"] = True
-                if HEADLESS:
+                if _claude_skips():
                     cfg["bypassPermissionsModeAccepted"] = True
                 tmp = CLAUDE_JSON + ".agentboard-tmp"
                 with open(tmp, "w") as f:
@@ -1924,7 +1929,7 @@ def pre_trust(agent, cwd):
             # с 2.1.28x согласие на bypass лежит в settings.json (туда же пишем хуки);
             # тема — чтобы мастер первого запуска не спрашивал её на узле
             st, ok = _read_json(CLAUDE_SETTINGS)
-            if HEADLESS and ok and not st.get("skipDangerousModePermissionPrompt"):
+            if _claude_skips() and ok and not st.get("skipDangerousModePermissionPrompt"):
                 st["skipDangerousModePermissionPrompt"] = True
                 st.setdefault("theme", "dark")
                 tmp = CLAUDE_SETTINGS + ".tmp"
@@ -1961,6 +1966,11 @@ def pre_trust(agent, cwd):
 # поэтому codex там идёт без вопросов, как клод с --dangerously-skip-permissions
 CODEX_BYPASS = "--dangerously-bypass-approvals-and-sandbox" if HEADLESS else ""
 CLAUDE_BYPASS = ["--dangerously-skip-permissions"] if HEADLESS else []  # на маке спросит сам
+# свои флаги вместо полного обхода, например auto mode у клода и --approve-for-me у codex
+if os.environ.get("AGENTBOARD_CLAUDE_FLAGS") is not None:
+    CLAUDE_BYPASS = shlex.split(os.environ["AGENTBOARD_CLAUDE_FLAGS"])
+if os.environ.get("AGENTBOARD_CODEX_FLAGS") is not None:
+    CODEX_BYPASS = os.environ["AGENTBOARD_CODEX_FLAGS"]
 
 
 def free_name(base):
@@ -2713,12 +2723,13 @@ def tg_entities(text):
     return json.dumps(ents) if ents else None
 
 
-def tg_post(text, reply_to=None):
+def tg_post(text, reply_to=None, markup=None):
     """Одно сообщение; вернёт его message_id (None — не дошло)."""
     try:
         r = tg_api("sendMessage", chat_id=TG_CHAT, text=text, entities=tg_entities(text),
                    reply_to_message_id=reply_to, allow_sending_without_reply="true",
-                   disable_web_page_preview="true")
+                   disable_web_page_preview="true",
+                   reply_markup=json.dumps(markup, ensure_ascii=False) if markup else None)
         return (r or {}).get("message_id")
     except urllib.error.HTTPError as e:
         tg_log(f"sendMessage: {e}")
@@ -3301,6 +3312,82 @@ def tg_fetch(media, name):
     return tg_download(file_id, dest)
 
 
+def tg_projects():
+    """Все папки проектов из $AGENTBOARD_DIRS — для /new и /projects."""
+    out = {}
+    bases = os.environ.get("AGENTBOARD_DIRS", "~/Documents/dev:~/Documents")
+    for base in (os.path.expanduser(b) for b in bases.split(":") if b):
+        try:
+            entries = sorted(os.listdir(base))
+        except OSError:
+            continue
+        for d in entries:
+            path = os.path.join(base, d)
+            if os.path.isdir(path) and not d.startswith("."):
+                out.setdefault(d, path)
+    return out
+
+
+NEW_HELP = ("Новый агент: /new <проект> [codex] <задача>\n"
+            "Например: /new scandalio посмотри git status и расскажи коротко\n"
+            "Проекты: /projects")
+
+
+TG_NEW_ASK = {}  # message_id вопроса «что сделать?» → проект
+
+
+def tg_new(text, mid):
+    """/new <проект> [claude|codex] <задача> — запустить агента из телеграма.
+    Без задачи — по шагам: кнопки проектов, потом вопрос, ответ на него — задача."""
+    parts = text.split(None, 2)
+    projects = tg_projects()
+    if len(parts) < 2:
+        names = list(projects)
+        rows = [[{"text": f"/new {n}"} for n in names[i:i + 2]] for i in range(0, len(names), 2)]
+        tg_post("В каком проекте запустить агента?", reply_to=mid,
+                markup={"keyboard": rows, "one_time_keyboard": True, "resize_keyboard": True})
+        return
+    key = parts[1].lower()
+    match = [n for n in projects if n.lower() == key] or \
+            [n for n in projects if n.lower().startswith(key)]
+    if len(match) != 1:
+        why = "Такого проекта нет" if not match else "Подходит несколько: " + ", ".join(match)
+        tg_post(f"{why}. Проекты: " + ", ".join(projects), reply_to=mid)
+        return
+    if len(parts) < 3:
+        ask = tg_post(f"Что сделать в {match[0]}? Ответь на это сообщение задачей "
+                      "(слово codex в начале — запустить Codex вместо Claude).",
+                      markup={"force_reply": True, "input_field_placeholder": "задача для агента"})
+        if ask:
+            TG_NEW_ASK[ask] = match[0]
+            tg_log(f"жду задачу для {match[0]} ответом на {ask}")
+        return
+    tg_start(match[0], projects[match[0]], parts[2], mid)
+
+
+def tg_start(project, cwd, rest, mid):
+    agent = "claude"
+    first = rest.split(None, 1)
+    if first[0].lower() in ("claude", "codex") and len(first) == 2:
+        agent, rest = first[0].lower(), first[1]
+    if agent == "codex" and not CODEX:
+        tg_post("Codex на узле не найден.", reply_to=mid)
+        return
+    with BOARD_LOCK:  # имя сессии берём из только что добавленной карточки
+        try:
+            ok = new_agent(cwd, project, rest, agent)
+        except Exception as e:
+            tg_log(f"/new {project}: {e}")
+            ok = False
+        name = load_board()["cards"][-1].get("tmux", project) if ok else ""
+    if not ok:
+        tg_post(f"Не удалось запустить агента в {project}.", reply_to=mid)
+        return
+    tg_last_set("to", name)
+    tg_log(f"новый агент @{name} ({agent}) в {project}: {rest[:60]!r}")
+    tg_post(f"Запустил @{name} ({agent}) в {project}. Отвечу, когда закончит.", reply_to=mid)
+
+
 def tg_handle(msg):
     """Входящее из телеграма. Только наш чат: бот публичный, команду агенту
     может прислать кто угодно. /help — список сессий, /enter и т.п. — клавиши
@@ -3310,10 +3397,29 @@ def tg_handle(msg):
     text = (msg.get("text") or msg.get("caption") or "").strip()
     mid = msg.get("message_id")
     media = tg_media(msg)
+    rt_id = (msg.get("reply_to_message") or {}).get("message_id")
+    tg_log(f"← {text[:60]!r}" + (f" (ответ на {rt_id})" if rt_id else ""))
     if not text and not media:
         return
     if text.split("@")[0].lower() in ("/start", "/help", "/list", "/ls", "?"):
-        tg_post(tg_help(tg_agents()), reply_to=mid)
+        tg_post(tg_help(tg_agents()) + "\n\n" + NEW_HELP, reply_to=mid)
+        return
+    cmd = text.split(None, 1)[0].split("@")[0].lower() if text else ""
+    if cmd == "/new" and not media:
+        tg_new(text, mid)
+        return
+    rt = msg.get("reply_to_message") or {}
+    m = re.match(r"Что сделать в (\S+)\?", rt.get("text") or "")
+    if (rt.get("message_id") in TG_NEW_ASK or m) and text and not media:
+        # ответ на «что сделать в …?»; проект берём и из текста вопроса —
+        # чтобы ответ не терялся после перезапуска доски
+        project = TG_NEW_ASK.pop(rt.get("message_id"), None) or m.group(1)
+        cwd = tg_projects().get(project)
+        if cwd:
+            tg_start(project, cwd, text, mid)
+        return
+    if cmd == "/projects":
+        tg_post("Проекты: " + ", ".join(tg_projects()), reply_to=mid)
         return
     agents = tg_agents()
     name, body, note = tg_target(msg, text, agents)
