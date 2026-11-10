@@ -1606,7 +1606,7 @@ def get_agents():
         p = os.path.join(NAMES_DIR, fn)
         card = by_tmux.get(fn)
         # ручное имя (с доски или по id) всегда главнее агентского
-        if card and not (card.get("label") or board["labels"].get(card.get("id") or "")):
+        if card and card.get("tmux") != DUTY_NAME and not (card.get("label") or board["labels"].get(card.get("id") or "")):
             try:
                 with open(p) as f:
                     label = " ".join(f.read().split())[:60]
@@ -1665,7 +1665,7 @@ def get_agents():
                     card["id"] = cid
                     changed = True
                 a["cid"] = card.get("id", "")
-            a["label"] = card.get("label") or board["labels"].get(a["cid"], "")
+            a["label"] = card_label(card, board, a["cid"])
             # превью — только из структурного лога: в пейне на старте
             # прокручивается служебный шум (MCP, лимиты), в логе его нет
             pane_preview = a["preview"]
@@ -1726,7 +1726,7 @@ def get_agents():
             changed = True
         a["cid"] = card["id"]
         a["sname"] = names.get(card["id"], "")
-        a["label"] = card.get("label") or board["labels"].get(card["id"], "")
+        a["label"] = card_label(card, board, card["id"])
         a["logo"] = logo_version(a["path"])
         if card["id"]:
             session_path = find_session_file(card["cwd"], card["id"])
@@ -2293,6 +2293,13 @@ def stop_agent(name):
 
 
 @locked
+def card_label(card, board, cid):
+    """Имя карточки для доски и Telegram; у дежурного оно всегда постоянное."""
+    if card.get("tmux") == DUTY_NAME:
+        return DUTY_LABEL
+    return card.get("label") or board["labels"].get(cid, "")
+
+
 def set_label(tname, cid, label):
     """Своё имя карточки. id разговора точнее имени tmux — матчим сначала по нему."""
     board = load_board()
@@ -3341,6 +3348,7 @@ NEW_HELP = ("Новый агент: /new <проект> [codex] <задача>\n
 # своим CLAUDE.md (роль, команда board для других агентов). Пусто — выключен.
 DUTY_DIR = os.path.expanduser(os.environ.get("AGENTBOARD_DUTY_DIR", ""))
 DUTY_NAME = "duty"
+DUTY_LABEL = "Дежурный агент"  # постоянное имя дежурного, не от первой задачи
 
 
 def tg_duty_start(body, mid):
