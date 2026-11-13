@@ -2684,20 +2684,26 @@ def tg_last_load():
     try:
         with open(TG_LAST_FILE, encoding="utf-8") as f:
             d = json.load(f)
-        return {"from": str(d.get("from") or ""), "to": str(d.get("to") or "")}
-    except (OSError, ValueError, AttributeError):
-        return {"from": "", "to": ""}
+        return {"from": str(d.get("from") or ""), "to": str(d.get("to") or ""),
+                "cur": str(d.get("cur") or ""), "cur_at": float(d.get("cur_at") or 0),
+                "to_at": float(d.get("to_at") or 0)}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {"from": "", "to": "", "cur": "", "cur_at": 0.0, "to_at": 0.0}
 
 
 TG_LAST = tg_last_load()
 
 
 def tg_last_set(key, name):
-    """from — чьё уведомление доставлено последним, to — куда ушло последнее сообщение юзера."""
+    """from — чьё уведомление доставлено последним, to — куда ушло последнее сообщение юзера.
+    cur/cur_at — с кем был последний обмен в любую сторону и когда: в пределах
+    TG_STICKY секунд сообщения без адреса идут ему (см. tg_target)."""
     with TG_LAST_LOCK:
-        if TG_LAST.get(key) == name:
-            return
+        now = time.time()
         TG_LAST[key] = name
+        TG_LAST["cur"], TG_LAST["cur_at"] = name, now
+        if key == "to":
+            TG_LAST["to_at"] = now
         try:
             tmp = TG_LAST_FILE + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
@@ -3150,8 +3156,7 @@ def notifier():
             # текст — только последний ход; у не-клода (лога нет) — хвост превью
             tail = last_reply(logs[name]) if name in logs else notify_text(a["preview"])
             if status == "idle" and not tail:
-                tg_log(f"@{name} idle: ход без текста, не шлём")
-                continue
+                tail = "(ход закончен без текста)"  # молчание хуже короткого «готово»
             prev = sent.get(name)
             if prev and prev[:2] == (status, tail) and time.time() - prev[2] < 600:
                 tg_log(f"@{name} {status}: тот же ответ уже отправлен, не шлём")
@@ -3217,21 +3222,64 @@ def tg_help(agents):
     rows = [f"{icon.get(a.get('status'), '•')} @{n} · {a.get('label') or a.get('project') or n}"
             for n, a in sorted(agents.items())]
     return (("Сессии на узле:\n" + "\n".join(rows)) if rows else "Живых сессий на узле нет.") + (
-        "\n\nОтветить агенту — реплаем на его уведомление или сообщением с @именем; "
-        "без того и другого сообщение уйдёт сессии, приславшей последнее уведомление. "
+        f"\n\nБез реплая и @имени сообщение уходит агенту, с которым был обмен за последние "
+        f"{TG_STICKY // 60} мин. Дольше, никого нет или в тексте другой проект — бот спросит "
+        "кнопками, кому: живому агенту, новому в проекте или общему агенту. "
+        "Ушло не туда — кнопка «↪ не туда» под отметкой. "
         "Картинки и файлы тоже можно, подпись уйдёт текстом. "
         "Клавиши диалога: /enter /esc /up /down /tab." +
-        ("\n\nДежурный: /agent <текст>; ему же уходит всё, если неясно кому." if DUTY_DIR else ""))
+        ("\n\nОбщий агент (без проекта): /agent <текст>." if DUTY_DIR else ""))
+
+
+TG_STICKY = int(os.environ.get("AGENTBOARD_TG_STICKY") or 1200)  # сек «текущего собеседника»
+TG_UPDATES = ["callback_query", "message"]
+
+
+def tg_aliases():
+    """AGENTBOARD_TG_ALIASES="scandalio=скандалио;kuhni-lebedi=кухни,кл" — как проекты
+    называют в сообщениях. Само имя папки — тоже название."""
+    out = {}
+    for part in os.environ.get("AGENTBOARD_TG_ALIASES", "").split(";"):
+        proj, _, words = part.partition("=")
+        if proj.strip():
+            out[proj.strip()] = [w.strip().lower() for w in words.split(",") if w.strip()]
+    return out
+
+
+def tg_mentions(text, projects=None):
+    """Проекты, названные в тексте, в порядке появления. Слово короче 4 букв —
+    только целиком («кл»), длиннее — как начало слова («кухн» → «кухнях»)."""
+    low, found = (text or "").lower(), []
+    aliases = tg_aliases()
+    for proj in (projects if projects is not None else tg_projects()):
+        pos = []
+        for term in [proj.lower()] + aliases.get(proj, []):
+            tail = r"(?![\w-])" if len(term) < 4 else r"(?!-)"
+            m = re.search(r"(?<![\w-])" + re.escape(term) + tail, low)
+            if m:
+                pos.append(m.start())
+        if pos:
+            found.append((min(pos), proj))
+    return [p for _, p in sorted(found)]
+
+
+def agent_projects(a):
+    """Проект агента: и как записан на карточке, и по имени папки."""
+    out = {a.get("project") or ""}
+    if a.get("path"):
+        out.add(os.path.basename(a["path"].rstrip("/")))
+    return out - {""}
 
 
 def tg_target(msg, text, agents):
     """Кому адресовано сообщение. Реплай — сессия из шапки уведомления (или из
     памяти, если ответили на хвост длинного ответа), и только она: подставлять
     похожую вместо умершей нельзя. Без реплая — @имя в тексте (тут можно и
-    неточно: по началу или по имени карточки). Без адреса — сессии, чьё
-    уведомление пришло последним; если её уже нет — единственной живой.
-    Когда адресат без адреса сменился, говорим юзеру, куда ушло. Вернёт (сессия, текст без тега, заметка): без сессии заметка —
-    ответ юзеру об ошибке, с сессией — куда именно ушло, если имя подобрали."""
+    неточно: по началу или по имени карточки). Без адреса — текущему
+    собеседнику, если обмен с ним был не дольше TG_STICKY назад и в тексте не
+    назван другой проект; иначе спросить кнопками (how="menu").
+    Вернёт (сессия, текст без тега, заметка, how): how — reply | tag | auto | menu;
+    без сессии и не menu заметка — ответ юзеру об ошибке."""
     rt = msg.get("reply_to_message") or {}
     if rt:
         name = TG_SENT.get(rt.get("message_id"))
@@ -3240,32 +3288,193 @@ def tg_target(msg, text, agents):
             name = m.group(1) if m else ""
         if not name:
             return None, text, ("Это не уведомление доски. Ответь реплаем на уведомление "
-                                "или начни с @имени сессии.\n\n" + tg_help(agents))
+                                "или начни с @имени сессии.\n\n" + tg_help(agents)), "reply"
         if name not in agents:
-            return None, text, f"Сессии @{name} уже нет.\n\n" + tg_help(agents)
-        return name, text, ""
+            return None, text, f"Сессии @{name} уже нет.\n\n" + tg_help(agents), "reply"
+        return name, text, "", "reply"
     for m in TG_TAG_RE.finditer(text):
         name = tg_resolve(m.group(1), agents)
+        if not name and DUTY_DIR and m.group(1).lower() == DUTY_NAME:
+            name = DUTY_NAME  # спящий общий агент: разбудим
         if name:
             body = (text[:m.start()] + text[m.end():]).strip()
-            note = "" if name == m.group(1) else f"→ @{name} · {agents[name].get('label') or name}"
-            return name, body, note
+            note = "" if name == m.group(1) else f"→ @{name} · {agents.get(name, {}).get('label') or name}"
+            return name, body, note, "tag"
     tags = TG_TAG_RE.findall(text)
     if tags:
-        return None, text, f"Не знаю сессии @{tags[0]}.\n\n" + tg_help(agents)
-    last = TG_LAST.get("from")
-    if last in agents:
-        note = ("" if last == TG_LAST.get("to")
-                else f"→ @{last} · {agents[last].get('label') or last}")
-        return last, text, note
-    if len(agents) == 1:
-        return next(iter(agents)), text, ""
-    if DUTY_DIR:  # непонятно кому (или живых нет) — дежурному, он разберётся
-        return DUTY_NAME, text, ("" if DUTY_NAME in agents or not agents
-                                 else f"→ @{DUTY_NAME} · дежурный")
-    gone = f"Сессии @{last}, приславшей последнее уведомление, уже нет. " if last else ""
-    return None, text, (gone + "Кому это? Ответь реплаем на уведомление или начни "
-                        "с @имени сессии.\n\n" + tg_help(agents))
+        return None, text, f"Не знаю сессии @{tags[0]}.\n\n" + tg_help(agents), "tag"
+    cur = TG_LAST.get("cur")
+    if cur in agents and time.time() - (TG_LAST.get("cur_at") or 0) <= TG_STICKY:
+        named = tg_mentions(text)
+        if not named or agent_projects(agents[cur]) & set(named):
+            return cur, text, "", "auto"
+    return None, text, "", "menu"
+
+
+# ---------- меню «кому это?» и кнопка «↪ не туда» ----------
+
+TG_PENDING = {}   # токен -> {"text", "mid", "opts": [(вид, значение)], "wrong"}
+TG_PENDING_SEQ = [0]
+TG_PENDING_LOCK = threading.Lock()
+
+
+def tg_pending_put(item):
+    with TG_PENDING_LOCK:
+        TG_PENDING_SEQ[0] += 1
+        tok = format(TG_PENDING_SEQ[0], "x") + format(int(time.time()) % 4096, "x")
+        TG_PENDING[tok] = item
+        while len(TG_PENDING) > 200:
+            TG_PENDING.pop(next(iter(TG_PENDING)))
+        return tok
+
+
+def tg_menu_opts(text, agents, exclude=""):
+    """Варианты адресата: сначала названные в тексте проекты (их живые агенты,
+    потом «новый» там), затем текущий собеседник и остальные живые, общий агент,
+    новые агенты в прочих проектах."""
+    projects = tg_projects()
+    named = tg_mentions(text, projects)
+    cur = TG_LAST.get("cur")
+    live = [n for n in agents if n != exclude]
+    order = sorted(live, key=lambda n: (n != cur, n == DUTY_NAME, n))
+    opts, seen = [], set()
+
+    def add(kind, val):
+        if (kind, val) not in seen:
+            seen.add((kind, val))
+            opts.append((kind, val))
+    for proj in named:
+        for n in order:
+            if proj in agent_projects(agents[n]):
+                add("a", n)
+        add("n", proj)
+    for n in order:
+        if n != DUTY_NAME:
+            add("a", n)
+    if DUTY_DIR and exclude != DUTY_NAME:
+        add("d", "")
+    for proj in projects:
+        add("n", proj)
+    return opts
+
+
+def tg_opt_label(opt, agents):
+    kind, val = opt
+    if kind == "a":
+        a = agents.get(val) or {}
+        lab = a.get("label") or a.get("project") or val
+        return f"@{val} · {lab}"[:60]
+    if kind == "d":
+        return "🧭 общий агент"
+    return f"＋ новый: {val}"
+
+
+def tg_menu_markup(tok, opts, agents):
+    rows, pair = [], []
+    for i, opt in enumerate(opts):
+        btn = {"text": tg_opt_label(opt, agents), "callback_data": f"m{tok}:{i}"}
+        if opt[0] == "n":  # новые — по два в ряд, живые и общий — по одному
+            pair.append(btn)
+            if len(pair) == 2:
+                rows.append(pair)
+                pair = []
+        else:
+            rows.append([btn])
+    if pair:
+        rows.append(pair)
+    return {"inline_keyboard": rows}
+
+
+def tg_menu(body, mid, agents, wrong="", edit=None):
+    """Спросить кнопками, кому сообщение. edit — message_id сообщения бота,
+    которое превратить в меню (кнопка «не туда»), иначе новое сообщение."""
+    opts = tg_menu_opts(body, agents, exclude=wrong)
+    tok = tg_pending_put({"text": body, "mid": mid, "opts": opts, "wrong": wrong})
+    ask = ("Кому это? Выбери — передам." if not wrong
+           else f"Кому на самом деле? @{wrong} получит Esc и просьбу не делать по этому сообщению ничего.")
+    markup = tg_menu_markup(tok, opts, agents)
+    if edit:
+        try:
+            tg_api("editMessageText", chat_id=TG_CHAT, message_id=edit, text=ask,
+                   reply_markup=json.dumps(markup, ensure_ascii=False))
+            return
+        except Exception as e:
+            tg_log(f"editMessageText: {e}")
+    tg_post(ask, reply_to=mid, markup=markup)
+
+
+def tg_mark(name, agents, body, mid):
+    """Отметка «ушло @имя» с кнопкой «↪ не туда» — после доставки без адреса."""
+    tok = tg_pending_put({"text": body, "mid": mid, "wrong": name})
+    lab = (agents.get(name) or {}).get("label") or (agents.get(name) or {}).get("project") or name
+    tg_post(f"→ @{name} · {lab}", reply_to=mid,
+            markup={"inline_keyboard": [[{"text": "↪ не туда", "callback_data": f"w{tok}"}]]})
+
+
+def tg_deliver(opt, body, mid):
+    """Выполнить выбор из меню; вернёт текст итога для сообщения-меню."""
+    kind, val = opt
+    if kind == "n":
+        cwd = tg_projects().get(val)
+        if not cwd:
+            return f"Проекта {val} уже нет."
+        tg_start(val, cwd, body, mid)
+        return f"→ новый агент в {val}"
+    if kind == "d":
+        tg_duty(body, mid)
+        return f"→ @{DUTY_NAME} · общий агент"
+    ok = send_to_agent(val, body)
+    tg_log(f"→ @{val} (меню): {body[:60]!r}" + ("" if ok else " — не дошло"))
+    if not ok:
+        return f"Не удалось передать @{val}. Проверь сессию на доске."
+    tg_last_set("to", val)
+    return f"→ @{val}"
+
+
+def tg_callback(cq):
+    """Нажатие кнопки под сообщением бота: выбор адресата или «не туда»."""
+    msg = cq.get("message") or {}
+    if str((msg.get("chat") or {}).get("id")) != str(TG_CHAT):
+        return
+    data, bot_mid = cq.get("data") or "", msg.get("message_id")
+    try:
+        tg_api("answerCallbackQuery", callback_query_id=cq.get("id"))
+    except Exception as e:
+        tg_log(f"answerCallbackQuery: {e}")
+    tg_log(f"← кнопка {data!r}")
+    m = re.fullmatch(r"([mw])(\w+?)(?::(\d+))?", data)
+    with TG_PENDING_LOCK:
+        item = TG_PENDING.get(m.group(2)) if m else None
+        if item and m.group(1) == "m":
+            TG_PENDING.pop(m.group(2), None)  # двойное нажатие не отправит дважды
+    if not item:
+        try:
+            tg_api("editMessageText", chat_id=TG_CHAT, message_id=bot_mid,
+                   text="Кнопка устарела (доска перезапускалась). Пришли сообщение ещё раз.")
+        except Exception:
+            pass
+        return
+    agents = tg_agents()
+    if m.group(1) == "w":
+        tg_menu(item["text"], item["mid"], agents, wrong=item["wrong"], edit=bot_mid)
+        return
+    i = int(m.group(3) or 0)
+    if i >= len(item["opts"]):
+        return
+    wrong = item.get("wrong")
+    if wrong and wrong in agents:
+        send_key(wrong, "esc")
+        time.sleep(0.5)
+        send_to_agent(wrong, "Предыдущее сообщение из Telegram было адресовано не тебе: "
+                             "ничего по нему не делай. Ответь одним словом «ок».")
+        tg_log(f"не туда: @{wrong} отозван")
+    result = tg_deliver(item["opts"][i], item["text"], item["mid"])
+    try:
+        tg_api("editMessageText", chat_id=TG_CHAT, message_id=bot_mid,
+               text=(f"Отозвал у @{wrong}. " if wrong else "") + result,
+               entities=tg_entities(result))
+    except Exception as e:
+        tg_log(f"editMessageText: {e}")
 
 
 def tg_react(mid, emoji="👍"):
@@ -3344,11 +3553,11 @@ NEW_HELP = ("Новый агент: /new <проект> [codex] <задача>\n
             "Проекты: /projects")
 
 
-# Дежурный: сообщения без реплая и @имени идут ему. Живёт в своей папке со
-# своим CLAUDE.md (роль, команда board для других агентов). Пусто — выключен.
+# Общий агент (бывший дежурный): универсальный, без проекта, в своей папке со
+# своим CLAUDE.md. Зовут /agent, @duty или кнопкой «общий агент». Пусто — выключен.
 DUTY_DIR = os.path.expanduser(os.environ.get("AGENTBOARD_DUTY_DIR", ""))
 DUTY_NAME = "duty"
-DUTY_LABEL = "Дежурный агент"  # постоянное имя дежурного, не от первой задачи
+DUTY_LABEL = "Общий агент"  # постоянное имя дежурного, не от первой задачи
 
 
 def tg_duty_start(body, mid):
@@ -3365,11 +3574,11 @@ def tg_duty_start(body, mid):
     if ok:
         tg_log(f"дежурный запущен: {body[:60]!r}")
         tg_last_set("to", DUTY_NAME)
-        tg_post("Дежурный проснулся и взял сообщение.", reply_to=mid)
+        tg_post("Общий агент проснулся и взял сообщение.", reply_to=mid)
     return ok
 
 
-DUTY_ASK = "Что передать дежурному?"
+DUTY_ASK = "Что передать общему агенту?"
 
 
 def tg_duty(body, mid):
@@ -3379,7 +3588,7 @@ def tg_duty(body, mid):
         return
     if not body:
         tg_post(DUTY_ASK + " Ответь на это сообщение.",
-                markup={"force_reply": True, "input_field_placeholder": "сообщение дежурному"})
+                markup={"force_reply": True, "input_field_placeholder": "сообщение общему агенту"})
         return
     if tmux_ok("has-session", "-t", DUTY_NAME):
         ok = send_to_agent(DUTY_NAME, body)
@@ -3388,9 +3597,9 @@ def tg_duty(body, mid):
             tg_last_set("to", DUTY_NAME)
             tg_react(mid)
         else:
-            tg_post("Не удалось передать дежурному.", reply_to=mid)
+            tg_post("Не удалось передать общему агенту.", reply_to=mid)
     elif not tg_duty_start(body, mid):
-        tg_post("Не удалось разбудить дежурного, посмотри журнал доски.", reply_to=mid)
+        tg_post("Не удалось разбудить общего агента, посмотри журнал доски.", reply_to=mid)
 
 
 def tg_stop(msg, text, mid):
@@ -3399,7 +3608,7 @@ def tg_stop(msg, text, mid):
     arg = text.split(None, 1)[1].strip() if len(text.split(None, 1)) > 1 else ""
     name = ""
     if msg.get("reply_to_message"):
-        name, _, note = tg_target(msg, "", agents)
+        name, _, note, _ = tg_target(msg, "", agents)
         if not name:
             tg_post(note, reply_to=mid)
             return
@@ -3511,7 +3720,8 @@ def tg_handle(msg):
     if cmd == "/agent" and not media:
         tg_duty(text.split(None, 1)[1].strip() if len(text.split(None, 1)) > 1 else "", mid)
         return
-    if ((msg.get("reply_to_message") or {}).get("text") or "").startswith(DUTY_ASK) \
+    if ((msg.get("reply_to_message") or {}).get("text") or "").startswith(
+            (DUTY_ASK, "Что передать дежурному?")) \
             and text and not media:
         tg_duty(text, mid)
         return
@@ -3522,7 +3732,17 @@ def tg_handle(msg):
         tg_post("Проекты: " + ", ".join(tg_projects()), reply_to=mid)
         return
     agents = tg_agents()
-    name, body, note = tg_target(msg, text, agents)
+    name, body, note, how = tg_target(msg, text, agents)
+    if how == "menu":
+        if media:
+            path = tg_fetch(media, "_menu")
+            if not path:
+                tg_post("Не смог скачать вложение: Bot API отдаёт файлы до 20 МБ.", reply_to=mid)
+                return
+            body = (body + "\n\n" if body else "") + f"Вложение из Telegram: {path}"
+        tg_log(f"кому? меню для {body[:60]!r}")
+        tg_menu(body, mid, agents)
+        return
     if not name:
         tg_post(note, reply_to=mid)
         return
@@ -3537,17 +3757,23 @@ def tg_handle(msg):
         return
     if name == DUTY_NAME and DUTY_DIR and name not in agents:
         if not tg_duty_start(body, mid):
-            tg_post("Не удалось разбудить дежурного, посмотри журнал доски.", reply_to=mid)
+            tg_post("Не удалось разбудить общего агента, посмотри журнал доски.", reply_to=mid)
         return
+    # отметка с «не туда» — когда адресат угадан, а ты пишешь ему не подряд
+    mark = how == "auto" and (name != TG_LAST.get("to")
+                              or time.time() - (TG_LAST.get("to_at") or 0) > 120)
     if re.fullmatch(r"/(enter|esc|up|down|tab)", body.lower()):
         ok = send_key(name, body[1:].lower())
+        mark = False
     else:
         ok = send_to_agent(name, body)
     tg_log(f"→ @{name}: {body[:60]!r}" + ("" if ok else " — не дошло"))
-    if ok:
-        tg_last_set("to", name)
     if not ok:
         tg_post(f"Не удалось передать сообщение в @{name}. Проверь сессию на доске.", reply_to=mid)
+        return
+    tg_last_set("to", name)
+    if mark:
+        tg_mark(name, agents, body, mid)
     elif note:
         tg_post(note, reply_to=mid)
     elif not tg_react(mid):
@@ -3565,7 +3791,7 @@ def tg_listener():
         tg_log(f"getWebhookInfo: {e}")
         info = {}
     allowed = info.get("allowed_updates") or []
-    if info.get("url") or (allowed and allowed != ["message"]):
+    if info.get("url") or (allowed and sorted(allowed) not in (["message"], TG_UPDATES)):
         tg_log("бота уже слушает другой процесс — ответы из Telegram выключены. "
                "Заведи доске отдельного бота (@BotFather), токен в AGENTBOARD_TG_TOKEN")
         return
@@ -3574,7 +3800,7 @@ def tg_listener():
     while True:
         try:
             updates = tg_api("getUpdates", http_timeout=70, offset=offset, timeout=50,
-                             allowed_updates='["message"]') or []
+                             allowed_updates=json.dumps(TG_UPDATES)) or []
             if backoff:
                 tg_log("снова слушаю ответы из Telegram")
             backoff = 0
@@ -3602,7 +3828,10 @@ def tg_listener():
         for u in updates:
             offset = u["update_id"] + 1
             try:
-                tg_handle(u.get("message"))
+                if u.get("callback_query"):
+                    tg_callback(u["callback_query"])
+                else:
+                    tg_handle(u.get("message"))
             except Exception as e:
                 tg_log(f"handle: {e}")
 
