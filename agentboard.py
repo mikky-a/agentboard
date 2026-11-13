@@ -3328,6 +3328,69 @@ def tg_pending_put(item):
         return tok
 
 
+def log_context(path, tail=262144):
+    """Размер контекста клода по последнему ответу в логе, токенов (0 — неизвестно)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - tail))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return 0
+    for line in reversed(lines):
+        if '"usage"' not in line:
+            continue
+        try:
+            u = (json.loads(line).get("message") or {}).get("usage") or {}
+        except ValueError:
+            continue
+        n = sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_read_input_tokens",
+                                             "cache_creation_input_tokens"))
+        if n:
+            return n
+    return 0
+
+
+def ago(sec):
+    sec = max(0, int(sec))
+    if sec < 3600:
+        return f"{max(1, sec // 60)} мин"
+    if sec < 48 * 3600:
+        return f"{sec // 3600} ч"
+    return f"{sec // 86400} дн"
+
+
+def agent_info(name, agents, logs=None):
+    """«тема · молчит 3 ч · 180k» — для кнопок и вопросов о старых агентах."""
+    a = agents.get(name) or {}
+    topic = (a.get("label") or (a.get("preview") or "").strip().split("\n")[0]
+             or a.get("project") or name)[:28]
+    logs = claude_logs() if logs is None else logs
+    path = logs.get(name)
+    try:
+        last = os.path.getmtime(path) if path else (a.get("activity") or 0)
+    except OSError:
+        last = a.get("activity") or 0
+    parts = [topic]
+    if a.get("status") == "working":
+        parts.append("работает")
+    elif last:
+        parts.append("молчит " + ago(time.time() - last))
+    ctx = log_context(path) if path else 0
+    if ctx:
+        parts.append(f"{round(ctx / 1000)}k")
+    return " · ".join(parts)
+
+
+def tg_focus_opts(project, agents, exclude=""):
+    """Меню по одному проекту: его живые агенты, новый, «другой адресат…»."""
+    cur = TG_LAST.get("cur")
+    live = sorted((n for n, a in agents.items()
+                   if n != exclude and project in agent_projects(a)),
+                  key=lambda n: (n != cur, n))
+    return [("a", n) for n in live] + [("n", project), ("x", "")]
+
+
 def tg_menu_opts(text, agents, exclude=""):
     """Варианты адресата: сначала названные в тексте проекты (их живые агенты,
     потом «новый» там), затем текущий собеседник и остальные живые, общий агент,
@@ -3358,22 +3421,22 @@ def tg_menu_opts(text, agents, exclude=""):
     return opts
 
 
-def tg_opt_label(opt, agents):
+def tg_opt_label(opt, agents, logs=None, focus=False):
     kind, val = opt
     if kind == "a":
-        a = agents.get(val) or {}
-        lab = a.get("label") or a.get("project") or val
-        return f"@{val} · {lab}"[:60]
+        return f"@{val} · {agent_info(val, agents, logs)}"[:64]
     if kind == "d":
         return "🧭 общий агент"
-    return f"＋ новый: {val}"
+    if kind == "x":
+        return "другой адресат…"
+    return "＋ новый агент" if focus else f"＋ новый: {val}"
 
 
-def tg_menu_markup(tok, opts, agents):
-    rows, pair = [], []
+def tg_menu_markup(tok, opts, agents, focus=False):
+    rows, pair, logs = [], [], claude_logs()
     for i, opt in enumerate(opts):
-        btn = {"text": tg_opt_label(opt, agents), "callback_data": f"m{tok}:{i}"}
-        if opt[0] == "n":  # новые — по два в ряд, живые и общий — по одному
+        btn = {"text": tg_opt_label(opt, agents, logs, focus), "callback_data": f"m{tok}:{i}"}
+        if opt[0] == "n" and not focus:  # новые — по два в ряд, живые и общий — по одному
             pair.append(btn)
             if len(pair) == 2:
                 rows.append(pair)
@@ -3385,14 +3448,20 @@ def tg_menu_markup(tok, opts, agents):
     return {"inline_keyboard": rows}
 
 
-def tg_menu(body, mid, agents, wrong="", edit=None):
-    """Спросить кнопками, кому сообщение. edit — message_id сообщения бота,
-    которое превратить в меню (кнопка «не туда»), иначе новое сообщение."""
-    opts = tg_menu_opts(body, agents, exclude=wrong)
+def tg_menu(body, mid, agents, wrong="", edit=None, focus=""):
+    """Спросить кнопками, кому сообщение. focus — проект, названный в тексте:
+    тогда только его агенты, «＋ новый агент» и «другой адресат…». edit —
+    message_id сообщения бота, которое превратить в меню, иначе новое сообщение."""
+    opts = (tg_focus_opts(focus, agents, exclude=wrong) if focus
+            else tg_menu_opts(body, agents, exclude=wrong))
     tok = tg_pending_put({"text": body, "mid": mid, "opts": opts, "wrong": wrong})
-    ask = ("Кому это? Выбери — передам." if not wrong
-           else f"Кому на самом деле? @{wrong} получит Esc и просьбу не делать по этому сообщению ничего.")
-    markup = tg_menu_markup(tok, opts, agents)
+    if focus:
+        ask = f"{focus} — с кем работаем?"
+    else:
+        ask = "Кому это? Выбери — передам."
+    if wrong:
+        ask += f"\n@{wrong} получит Esc и просьбу ничего не делать по этому сообщению."
+    markup = tg_menu_markup(tok, opts, agents, focus=bool(focus))
     if edit:
         try:
             tg_api("editMessageText", chat_id=TG_CHAT, message_id=edit, text=ask,
@@ -3431,6 +3500,58 @@ def tg_deliver(opt, body, mid):
     return f"→ @{val}"
 
 
+TG_MAX_AGENTS = int(os.environ.get("AGENTBOARD_TG_MAX_AGENTS") or 4)  # больше — машине тесно
+
+
+def tg_cleanup_offer(project, new):
+    """После запуска нового агента — что сделать со старыми: агенты того же
+    проекта всегда, остальные — если живых больше TG_MAX_AGENTS (самые давно
+    молчащие, до трёх). Общего агента не предлагаем."""
+    agents = tg_agents()
+    logs = claude_logs()
+    olds = [n for n, a in agents.items()
+            if n not in (new, DUTY_NAME) and project in agent_projects(a)
+            and a.get("status") != "working"]
+    if len(agents) > TG_MAX_AGENTS:
+        def last(n):
+            try:
+                return os.path.getmtime(logs[n]) if n in logs else 0
+            except OSError:
+                return 0
+        rest = sorted((n for n in agents if n not in olds and n not in (new, DUTY_NAME)
+                       and agents[n].get("status") != "working"), key=last)
+        olds += rest[:3]
+        tg_post(f"Открыто агентов: {len(agents)}. Машине комфортно до {TG_MAX_AGENTS}, "
+                "дальше тормозит. Закрой кого-нибудь:")
+    for n in olds:
+        tok = tg_pending_put({"name": n})
+        tg_post(f"Что сделать с @{n} ({agent_info(n, agents, logs)})?", markup={"inline_keyboard": [[
+            {"text": "⏸ остановить", "callback_data": f"k{tok}:stop"},
+            {"text": "🗑 убрать с доски", "callback_data": f"k{tok}:rm"},
+            {"text": "оставить", "callback_data": f"k{tok}:keep"}]]})
+
+
+def tg_cleanup_do(name, act, bot_mid):
+    if act == "stop":
+        ok = stop_agent(name)
+        res = (f"@{name} остановлен: карточка на паузе, разговор можно возобновить с доски."
+               if ok else f"@{name} уже не запущен.")
+    elif act == "rm":
+        with BOARD_LOCK:
+            cid = next((c.get("id", "") for c in load_board()["cards"] if c.get("tmux") == name), "")
+            ok = remove_card(name, cid)
+        res = (f"@{name} убран с доски. Разговор сохранён: «недавно закрытые» на доске."
+               if ok else f"Не удалось убрать @{name}.")
+    else:
+        res = f"@{name} оставлен."
+    tg_log(f"старый агент @{name}: {act}")
+    try:
+        tg_api("editMessageText", chat_id=TG_CHAT, message_id=bot_mid, text=res,
+               entities=tg_entities(res))
+    except Exception as e:
+        tg_log(f"editMessageText: {e}")
+
+
 def tg_callback(cq):
     """Нажатие кнопки под сообщением бота: выбор адресата или «не туда»."""
     msg = cq.get("message") or {}
@@ -3442,10 +3563,10 @@ def tg_callback(cq):
     except Exception as e:
         tg_log(f"answerCallbackQuery: {e}")
     tg_log(f"← кнопка {data!r}")
-    m = re.fullmatch(r"([mw])(\w+?)(?::(\d+))?", data)
+    m = re.fullmatch(r"([mwk])(\w+?)(?::(\w+))?", data)
     with TG_PENDING_LOCK:
         item = TG_PENDING.get(m.group(2)) if m else None
-        if item and m.group(1) == "m":
+        if item and m.group(1) in "mk":
             TG_PENDING.pop(m.group(2), None)  # двойное нажатие не отправит дважды
     if not item:
         try:
@@ -3458,8 +3579,14 @@ def tg_callback(cq):
     if m.group(1) == "w":
         tg_menu(item["text"], item["mid"], agents, wrong=item["wrong"], edit=bot_mid)
         return
+    if m.group(1) == "k":
+        tg_cleanup_do(item["name"], m.group(3), bot_mid)
+        return
     i = int(m.group(3) or 0)
     if i >= len(item["opts"]):
+        return
+    if item["opts"][i][0] == "x":  # «другой адресат…» — общее меню вместо проектного
+        tg_menu(item["text"], item["mid"], agents, wrong=item.get("wrong", ""), edit=bot_mid)
         return
     wrong = item.get("wrong")
     if wrong and wrong in agents:
@@ -3671,7 +3798,7 @@ def tg_start(project, cwd, rest, mid):
         agent, rest = first[0].lower(), first[1]
     if agent == "codex" and not CODEX:
         tg_post("Codex на узле не найден.", reply_to=mid)
-        return
+        return ""
     with BOARD_LOCK:  # имя сессии берём из только что добавленной карточки
         try:
             ok = new_agent(cwd, project, rest, agent)
@@ -3681,10 +3808,15 @@ def tg_start(project, cwd, rest, mid):
         name = load_board()["cards"][-1].get("tmux", project) if ok else ""
     if not ok:
         tg_post(f"Не удалось запустить агента в {project}.", reply_to=mid)
-        return
+        return ""
     tg_last_set("to", name)
     tg_log(f"новый агент @{name} ({agent}) в {project}: {rest[:60]!r}")
     tg_post(f"Запустил @{name} ({agent}) в {project}. Отвечу, когда закончит.", reply_to=mid)
+    try:
+        tg_cleanup_offer(project, name)
+    except Exception as e:
+        tg_log(f"вопрос о старых агентах: {e}")
+    return name
 
 
 def tg_handle(msg):
@@ -3740,8 +3872,9 @@ def tg_handle(msg):
                 tg_post("Не смог скачать вложение: Bot API отдаёт файлы до 20 МБ.", reply_to=mid)
                 return
             body = (body + "\n\n" if body else "") + f"Вложение из Telegram: {path}"
-        tg_log(f"кому? меню для {body[:60]!r}")
-        tg_menu(body, mid, agents)
+        named = tg_mentions(text)
+        tg_log(f"кому? меню ({named[0] if named else 'общее'}) для {body[:60]!r}")
+        tg_menu(body, mid, agents, focus=named[0] if named else "")
         return
     if not name:
         tg_post(note, reply_to=mid)

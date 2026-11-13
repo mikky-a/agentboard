@@ -61,6 +61,23 @@ class RoutingTest(unittest.TestCase):
     def test_sleeping_duty_by_tag(self):
         self.assertEqual(self.route("@duty погода")[:2], ("duty", "погода"))
 
+    def test_focus_menu(self):
+        agents = dict(AGENTS, sc2={"name": "sc2", "project": "scandalio", "path": "/p/scandalio"})
+        self.talk("sc2", 60)
+        self.assertEqual(board.tg_focus_opts("scandalio", agents),
+                         [("a", "sc2"), ("a", "scandalio"), ("n", "scandalio"), ("x", "")])
+
+    def test_agent_info_and_context(self):
+        import json, os, tempfile
+        fd, path = tempfile.mkstemp()
+        self.addCleanup(os.remove, path)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps({"message": {"usage": {"input_tokens": 5, "cache_read_input_tokens": 179000,
+                                                      "cache_creation_input_tokens": 995}}}) + "\n")
+        os.utime(path, (time.time() - 3 * 3600 - 60,) * 2)
+        info = board.agent_info("scandalio", {"scandalio": {"label": "Зимний контент"}}, {"scandalio": path})
+        self.assertEqual(info, "Зимний контент · молчит 3 ч · 180k")
+
 
 if __name__ == "__main__":
     unittest.main()
