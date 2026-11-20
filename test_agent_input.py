@@ -101,5 +101,185 @@ class AgentInputTest(unittest.TestCase):
                 subprocess.run([*tmux, "kill-server"], capture_output=True, timeout=5)
 
 
+STATUS_SCREEN = """
+   Settings  Status   Config   Usage   Stats
+
+   Version:           2.1.296
+   Model:             fable (claude-fable-5-1)
+
+   Esc to cancel
+"""
+MODEL_SCREEN = """
+   ❯ 3.  Fable 5.1 ✔            For your toughest challenges
+   ● High effort (default) ←/→ to adjust
+   Enter to set as default · s to use this session only · Esc to cancel
+"""
+IDLE_SCREEN = """
+✻ Churned for 31m 30s · done 5:51 PM
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on · 6 shells · esc to interrupt · ← for agents
+"""
+
+
+PERMISSION_SCREEN = """\
+  ⎿  $ curl -s -m 40 -o crop.png https://example.com/x (8m 26s)
+     (ctrl+b ctrl+b (twice) to run in background)
+─────────────────────────────────────────────────────────────────────────────────────────
+ Bash command · from the general-purpose agent
+ Cut screenshot into parts
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ cd $S/bbcover; mkdir -p shots; rm -f shots/*
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ Dangerous rm operation on statically-unresolvable target:
+ │ /home/agent/projects/scandalio/shots/*
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+ Esc to cancel · Tab to amend · ctrl+x ctrl+k twice to stop background agents
+"""
+
+
+class MenuNotificationTest(unittest.TestCase):
+    """A subagent's permission question goes past the status hooks: the card stays
+    "working" and nobody is told. The board sends the question itself."""
+
+    def setUp(self):
+        self.queued, self.screen, self.watched = [], PERMISSION_SCREEN, False
+        cards = {"cards": [{"tmux": "sc", "agent": "claude", "project": "scandalio", "id": "u1"}],
+                 "labels": {"u1": "Тренды"}}
+
+        def tmux(*a):
+            return "sc\n" if a[0] == "list-sessions" else self.screen
+
+        for name, kwargs in (
+            ("load_board", {"return_value": cards}),
+            ("tmux", {"side_effect": tmux}),
+            ("tg_enqueue", {"side_effect": lambda n, t: self.queued.append((n, t))}),
+            ("tg_watched", {"side_effect": lambda n: self.watched}),
+            ("tg_log", {}),
+            ("TG_MENU_SEEN", {"new": {}}),
+            ("TG_MENU_TOLD", {"new": {}}),
+            ("PUBLIC_URL", {"new": ""}),
+        ):
+            p = patch.object(board, name, **kwargs)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_question_is_sent_once_after_it_stays(self):
+        board.menu_notifications(100)
+        board.menu_notifications(105)
+        self.assertEqual(self.queued, [])  # a menu the user is clicking through
+        board.menu_notifications(111)
+        board.menu_notifications(200)
+        self.assertEqual(len(self.queued), 1)
+        name, text = self.queued[0]
+        self.assertEqual(name, "sc")
+        self.assertTrue(text.startswith("🟡 Тренды · scandalio · @sc"))
+        self.assertIn("Do you want to proceed?\n ❯ 1. Yes\n   2. No", text)
+        self.assertNotIn("8m 26s", text)  # what is above the dialog ticks
+        self.assertNotIn("╌╌╌", text)
+        self.assertIn("номер пункта", text)
+
+    def test_closed_and_reopened_question_is_sent_again(self):
+        for t in (100, 111):
+            board.menu_notifications(t)
+        self.screen = IDLE_SCREEN
+        board.menu_notifications(120)
+        self.screen = PERMISSION_SCREEN
+        for t in (130, 141):
+            board.menu_notifications(t)
+        self.assertEqual(len(self.queued), 2)
+
+    def test_nothing_while_watched_or_already_shown_in_telegram(self):
+        self.watched = True
+        for t in (100, 111):
+            board.menu_notifications(t)
+        self.assertEqual(self.queued, [])
+        self.watched = False
+        board.TG_MENU_TOLD["sc"] = board.menu_core(board.agent_menu("sc"))
+        board.menu_notifications(120)
+        self.assertEqual(self.queued, [])
+
+
+class TelegramMenuTest(unittest.TestCase):
+    """/status в Claude открывает меню, и следующие сообщения из телеграма в нём
+    молча пропадали. Теперь текст в меню не печатается, а юзер видит экран."""
+
+    def setUp(self):
+        self.posts = []
+        for name, kwargs in (
+            ("TG_CHAT", {"new": "1"}),
+            ("tg_agents", {"return_value": {"sink": {"agent": "claude", "label": "Sink"}}}),
+            ("tg_post", {"side_effect": lambda text, reply_to=None, chat=None: self.posts.append(text)}),
+            ("tg_react", {"return_value": True}),
+            ("tg_last_set", {}),
+            ("tg_log", {}),
+        ):
+            p = patch.object(board, name, **kwargs)
+            p.start()
+            self.addCleanup(p.stop)
+        p = patch.object(board.time, "sleep")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def handle(self, text):
+        board.tg_handle({"chat": {"id": 1}, "message_id": 7, "text": "@sink " + text})
+
+    def test_menu_is_detected_only_by_its_hint(self):
+        for screen, menu in ((STATUS_SCREEN, True), (MODEL_SCREEN, True), (IDLE_SCREEN, False)):
+            with patch.object(board, "tmux", return_value=screen):
+                self.assertEqual(bool(board.agent_menu("sink")), menu, screen)
+
+    def test_text_is_not_typed_into_open_menu(self):
+        with patch.object(board, "tmux", return_value=MODEL_SCREEN), \
+             patch.object(board, "send_to_agent") as send:
+            self.handle("а мы делали тест object swap?")
+        send.assert_not_called()
+        self.assertEqual(len(self.posts), 1)
+        self.assertIn("открыто меню", self.posts[0])
+        self.assertIn("Esc to cancel", self.posts[0])
+
+    def test_number_picks_item_of_open_menu(self):
+        with patch.object(board, "tmux", return_value=PERMISSION_SCREEN), \
+             patch.object(board, "send_key", return_value=True) as key, \
+             patch.object(board, "send_to_agent") as send:
+            self.handle("1")
+        key.assert_called_once_with("sink", "1")
+        send.assert_not_called()
+
+    def test_number_without_menu_is_plain_text(self):
+        with patch.object(board, "tmux", return_value=IDLE_SCREEN), \
+             patch.object(board, "send_to_agent", return_value=True) as send:
+            self.handle("2")
+        send.assert_called_once_with("sink", "2")
+
+    def test_keys_still_reach_open_menu(self):
+        with patch.object(board, "tmux", return_value=STATUS_SCREEN), \
+             patch.object(board, "send_key", return_value=True) as key:
+            self.handle("/esc")
+        key.assert_called_once_with("sink", "esc")
+
+    def test_slash_command_that_opens_menu_sends_screen(self):
+        screens = iter([IDLE_SCREEN, STATUS_SCREEN])
+        with patch.object(board, "tmux", side_effect=lambda *a: next(screens)), \
+             patch.object(board, "send_to_agent", return_value=True) as send:
+            self.handle("/status")
+        send.assert_called_once_with("sink", "/status")
+        self.assertEqual(len(self.posts), 1)
+        self.assertIn("Экран @sink", self.posts[0])
+        self.assertIn("Version:", self.posts[0])
+
+    def test_plain_message_at_prompt_gets_reaction_only(self):
+        with patch.object(board, "tmux", return_value=IDLE_SCREEN), \
+             patch.object(board, "send_to_agent", return_value=True) as send:
+            self.handle("привет")
+        send.assert_called_once_with("sink", "привет")
+        self.assertEqual(self.posts, [])
+        board.tg_react.assert_called_once_with(7, chat="1")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -175,6 +175,10 @@
     -webkit-mask-image: url('/assets/agent-opencode.svg');
     mask-image: url('/assets/agent-opencode.svg');
   }
+  .agent-logo-agy {
+    -webkit-mask-image: url('/assets/agent-agy.svg');
+    mask-image: url('/assets/agent-agy.svg');
+  }
   .hint { margin-left: auto; color: #5f7a6b; font-size: 12px; }
   /* версия доски в топбаре — живая, с сервера; ведёт на релизы */
   .ver { text-decoration: none; opacity: 0.85; }
@@ -335,7 +339,7 @@
   }
   .meta-tip .agent-logo { width: 18px; height: 18px; }
   .meta-tip .agent-logo-codex, .meta-tip .agent-logo-cursor,
-  .meta-tip .agent-logo-opencode { color: #205c3b; }
+  .meta-tip .agent-logo-opencode, .meta-tip .agent-logo-agy { color: #205c3b; }
   .meta-tip-copy { display: grid; gap: 1px; min-width: 0; }
   .meta-tip-main { font-size: 11px; font-weight: 700; line-height: 1.25; white-space: nowrap; }
   .meta-tip-time { color: #5f6f66; font-size: 10.5px; line-height: 1.25; white-space: nowrap; }
@@ -814,7 +818,7 @@
     <span id="stale" hidden style="color:#e8b44b;font-size:12px;font-weight:600">page is stale — press Cmd+R</span>
     <span class="sp"></span>
     <span class="wbadge hooksbar" id="hooksbar" hidden
-          title="lifecycle hooks in the CLI configs (Claude Code, Codex, Cursor, opencode) tell the board when an agent waits for approval">
+          title="lifecycle hooks in the CLI configs (Claude Code, Codex, Cursor, opencode, Antigravity) tell the board when an agent waits for approval">
       <i class="wdot"></i><span id="hooksbarText">the board can't see agent statuses</span>
       <button class="top-btn" id="hooksFix">enable hooks</button>
     </span>
@@ -888,7 +892,7 @@
   const STR = {
     en: {
       stale: 'page is stale — press Cmd+R',
-      hooksTitle: "lifecycle hooks in the CLI configs (Claude Code, Codex, Cursor, opencode) tell the board when an agent waits for approval",
+      hooksTitle: "lifecycle hooks in the CLI configs (Claude Code, Codex, Cursor, opencode, Antigravity) tell the board when an agent waits for approval",
       hooksText: "the board can't see agent statuses",
       hooksFix: 'enable hooks',
       hooksDone: 'done — restart live agent sessions',
@@ -957,7 +961,7 @@
     },
     ru: {
       stale: 'страница устарела — нажми Cmd+R',
-      hooksTitle: 'хуки в конфигах CLI-агентов (Claude Code, Codex, Cursor, opencode) сообщают доске, когда агент ждёт разрешения',
+      hooksTitle: 'хуки в конфигах CLI-агентов (Claude Code, Codex, Cursor, opencode, Antigravity) сообщают доске, когда агент ждёт разрешения',
       hooksText: 'доска не видит статусы агентов',
       hooksFix: 'включить хуки',
       hooksDone: 'готово — перезапусти сессии агентов',
@@ -1618,7 +1622,8 @@
   }
 
   // шаг 2: задача для нового агента или резюм из истории
-  const AGENT_LABELS = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', opencode: 'opencode' };
+  const AGENT_LABELS = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor', opencode: 'opencode',
+                         agy: 'Antigravity' };
 
   function agentIcon(agent) {
     const label = AGENT_LABELS[agent];
@@ -1630,7 +1635,8 @@
   const ENGINES = {
     claude: {
       label: 'Claude',
-      models: [{ id: 'fable', l: 'Fable 5.1', def: 1 }, { id: 'opus', l: 'Opus 4.8' },
+      models: [{ id: 'claude-opus-5-5', l: 'Opus 5.5', def: 1 }, { id: 'claude-fable-5-2', l: 'Fable 5.2' },
+               { id: 'opus', l: 'Opus 4.8' },
                { id: 'sonnet', l: 'Sonnet 5' }, { id: 'haiku', l: 'Haiku 4.5' }],
       levels: ['low', 'medium', 'high', 'xhigh'], defL: 'xhigh',
     },
@@ -1640,7 +1646,7 @@
                { id: 'gpt-5.6-sol', l: 'GPT-5.6 Sol' }, { id: 'gpt-5.6-codex', l: 'GPT-5.6 Codex' }],
       levels: ['minimal', 'low', 'medium', 'high', 'xhigh'], defL: 'high',
     },
-    // у cursor/opencode списки моделей живые — подгружаются с сервера
+    // у cursor/opencode/agy списки моделей живые — подгружаются с сервера
     // (loadModels); до загрузки единственный пункт «дефолт» (пустой l
     // резолвится в t('default') при отрисовке, чтобы следовать за языком)
     cursor: {
@@ -1650,6 +1656,12 @@
     },
     opencode: {
       label: 'opencode',
+      models: [{ id: '', l: '', def: 1 }],
+      levels: [], defL: '',
+    },
+    // ризонинг у Antigravity зашит в id модели: gemini-4-neon-high, …-low
+    agy: {
+      label: 'Antigravity',
       models: [{ id: '', l: '', def: 1 }],
       levels: [], defL: '',
     },
@@ -1691,6 +1703,7 @@
   }
 
   const LAST_MODEL_KEY = 'agentboard-last-model';
+  const LAZY_ENGINES = ['cursor', 'opencode', 'agy'];
 
   function defaultModel(engine) {
     const models = pickerModels(engine);
@@ -1703,8 +1716,8 @@
     try {
       const saved = JSON.parse(localStorage.getItem(LAST_MODEL_KEY) || 'null');
       const E = saved && ENGINES[saved.eng];
-      // у cursor/opencode список ленивый — сохранённую модель не браним до загрузки
-      const lazy = saved && (saved.eng === 'cursor' || saved.eng === 'opencode');
+      // у cursor/opencode/agy список ленивый — сохранённую модель не браним до загрузки
+      const lazy = saved && LAZY_ENGINES.includes(saved.eng);
       if (!E || !engineAvailable(saved.eng, host) ||
           (!lazy && !E.models.some(m => m.id === saved.model))) return fallback;
       return { eng: saved.eng, model: saved.model };
@@ -1721,7 +1734,7 @@
     const last = lastModel(p.host);
     const st = { ...last, level: ENGINES[last.eng].defL };
     let draft = '';
-    ['cursor', 'opencode'].forEach(id => {
+    LAZY_ENGINES.forEach(id => {
       if (engineAvailable(id, p.host) && !ENGINES[id].loaded)
         loadModels(id).then(() => { if (popover.dataset.owner === 'plus') paint(); });
     });
@@ -1970,7 +1983,7 @@
 
   // ---------- опрос ----------
   let pageVer = null;
-  const avail = { claude: true, codex: false, cursor: false, opencode: false };
+  const avail = { claude: true, codex: false, cursor: false, opencode: false, agy: false };
   let enabledProviders = null;   // null = онбординг ещё не пройден
 
   // ---------- звук «жду тебя»: короткий динь при появлении жёлтого статуса ----------
@@ -2003,7 +2016,7 @@
   // ---------- онбординг: какие агенты подключить (первый запуск и настройки) ----------
   const PROVIDER_HINTS = {
     claude: 'claude.com/claude-code', codex: 'github.com/openai/codex',
-    cursor: 'cursor.com/cli', opencode: 'opencode.ai',
+    cursor: 'cursor.com/cli', opencode: 'opencode.ai', agy: 'antigravity.google',
   };
   let obPicked = null;
 
@@ -2189,6 +2202,7 @@
     avail.codex = !!data.codex;
     avail.cursor = !!data.cursor;
     avail.opencode = !!data.opencode;
+    avail.agy = !!data.agy;
     enabledProviders = data.providers;
     modelPrefs = data.models || {};
     if (data.providers === null) showOnboard();

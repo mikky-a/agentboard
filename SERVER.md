@@ -9,8 +9,8 @@ Tested on Ubuntu 24.04 with Python 3.12 and tmux 3.4. Any Linux with systemd
 should do. The board itself is one Python file with no dependencies.
 
 > **Agents on the server run without permission prompts.** There is no
-> terminal to click "Yes" in, so the board starts Claude Code with
-> `--dangerously-skip-permissions` and Codex with
+> terminal to click "Yes" in, so the board starts Claude Code and Antigravity
+> with `--dangerously-skip-permissions` and Codex with
 > `--dangerously-bypass-approvals-and-sandbox`. An agent can do anything your
 > Linux user can. Use a separate server or at least a separate user, and do not
 > keep anything on it that an agent must not touch.
@@ -42,8 +42,21 @@ sudo apt install -y nodejs npm && sudo npm install -g @openai/codex
 codex login --device-auth      # sign in with ChatGPT; then run `codex` once
 ```
 
-Check that `which claude codex` finds both. The board finds whatever is
-installed, so you can skip one of them.
+Optionally add Google's [Antigravity CLI](https://antigravity.google) (`agy`,
+Gemini models with a Google AI Pro or Ultra account). It installs into
+`~/.local/bin` without sudo. Run it once by hand: it prints a Google sign-in link,
+you open it on your laptop and paste the code back, then pick a color scheme and
+accept the terms.
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+agy                            # sign in, finish the first-run setup, quit with Ctrl-D twice
+```
+
+Check that `which claude codex` finds both (and `which agy`, if you installed it).
+The board finds whatever is installed, so you can skip any of them. The board
+starts `agy` with its background self-update turned off; update it with
+`agy update`.
 
 ## 3. The board
 
@@ -100,13 +113,18 @@ Codex and type the task. A git URL in the picker clones the repository into
 1. In Telegram, open [@BotFather](https://t.me/BotFather), send `/newbot` and
    copy the token. The bot must be new and used by nothing else, because the
    board long-polls it and Telegram allows only one poller per bot.
-2. Send your new bot any message, then get your chat id:
+2. Still in @BotFather, send `/setprivacy`, pick the bot and choose
+   **Disable**. Otherwise the bot sees only commands in group chats, not
+   messages like `@name text`. You can skip this if you will use only the
+   private chat.
+3. Send your new bot any message in a private chat, then get your chat id. It
+   is also your user id, so in group chats the bot recognizes you by it:
 
    ```bash
    curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | grep -o '"chat":{"id":[0-9-]*'
    ```
 
-3. Put both into `/etc/agentboard.env` and restart:
+4. Put both into `/etc/agentboard.env` and restart:
 
    ```bash
    AGENTBOARD_TG_TOKEN=<TOKEN>
@@ -127,12 +145,70 @@ What you get:
 - **Reply to a notification** and the text goes into that agent's terminal.
 - **`@name text`** goes to the session with that name; `/help` lists them.
 - **No reply and no `@name`**: the message goes to the session whose
-  notification came last. When that is not where your previous message went,
-  the bot says where this one went.
+  notification came last in this chat. When that is not where your previous
+  message went, the bot says where this one went.
+- **Group chats** split the stream of messages. Create a group with yourself
+  and the bot (or add the bot to an existing one) and call an agent there by
+  `@name`. From then on that agent answers in the group, until you write to it
+  from another chat.
+- **Other people in a group** can talk to the agents too. Add them to the group
+  as usual in Telegram. While the group has anyone besides you and the bot,
+  agents answer only when called: `@name`, `@<bot username>`, or a reply to an
+  agent's message. Other messages do not wake anyone, but the agent gets them
+  as context the next time it is called there, so it knows what was discussed.
+  Other members talk only to the agents that live in this group. Starting new
+  agents, moving agents between chats and slash commands such as `/model` stay
+  yours. The agent sees who wrote each message and that it is not you. The
+  bot listens to other people only in groups where you are a member, and their
+  private messages to the bot are ignored. Keep in mind that whoever you add
+  can make an agent run commands on the server, because agents there work
+  without permission prompts.
+- **`@project new`** starts a new Claude agent in that project, right in this
+  chat: it answers here, and messages here without `@name` go to it (in a group
+  with other people, call it by name).
+  `@project new codex <task>` starts Codex and gives it the task at once,
+  `@project new agy <task>` starts Antigravity. A model goes right after the
+  engine, by its full id or a short name: `@project new agy hydrogen-xhigh <task>`,
+  `@project new codex gpt-5.6-sol <task>`. Without one the agent gets the
+  default model.
+- **`@name /model <model>`** switches a running agent's model. For Antigravity
+  short names work here too (`/model flash-low`), and the bot replies with the
+  model it picked. agy would save it as the default for new sessions, so the
+  board puts your default back.
 - **Photos and files** are saved on the server, and the agent gets the path
   together with the caption.
+- **Voice notes and video circles** reach the agent as text, as if you had
+  typed it: Claude and Codex cannot hear audio. The board transcribes them with
+  Whisper on Groq (about a second per message) and adds the path to the
+  recording. It needs a Groq API key: put `{"groq_api_key": "gsk_…"}` into
+  `~/.agentboard/groq.json` (`chmod 600`), or set `GROQ_API_KEY` in the
+  service env. The file is read on every message, so no restart is needed.
+  Without a key, the agent gets only the file.
 - **`/enter` `/esc` `/up` `/down` `/tab`** press that key in the agent's
   terminal, for menus that wait for a choice.
+- **Menus are shown, not typed into.** A command such as `/status` or `/model`
+  opens a menu in Claude Code. The bot sends you its screen. While a menu is
+  open, the bot does not type your messages into it, because they would be lost
+  there. `/esc` closes the menu.
+
+## Agents talking to each other
+
+Agents on the board can message each other with the `board` command. The board
+puts it into `~/.local/bin` when it starts and describes it in the agents'
+memory next to the status hooks, so new sessions know it. To tell an agent that
+is already running, write to it once: "there is a `board` command, see
+`board --help`".
+
+```bash
+board ls                                   # who is running, with status and model
+board send scandalio "question" --wait     # ask, wait, print the reply
+board read scandalio                       # its last reply
+```
+
+The message goes in signed with the sender's session, so the receiving agent
+knows another agent wrote it and not you. With `--wait` the reply comes back as
+the output of the sender's command, and the receiver does not need to send it
+back. You still get the usual Telegram notification for the reply.
 
 ## Everyday use
 

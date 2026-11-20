@@ -241,7 +241,8 @@ body::before {
 .acard-actions .meta-tip-time { color: #6b6248; }
 .acard-actions .meta-tip .agent-logo-codex,
 .acard-actions .meta-tip .agent-logo-cursor,
-.acard-actions .meta-tip .agent-logo-opencode { color: #34332a; }
+.acard-actions .meta-tip .agent-logo-opencode,
+.acard-actions .meta-tip .agent-logo-agy { color: #34332a; }
 .acard-actions button {
   color: #12210f;
   font-weight: 800;
@@ -435,7 +436,7 @@ body::before {
 .send:hover { background: #415449; }
 .send:active { transform: translateY(1px); box-shadow: 0 1px 0 #1c231e; }
 #popover .po-check { color: #b3362a; }
-.agent-logo-codex, .agent-logo-cursor, .agent-logo-opencode { color: #c9c1a4; }
+.agent-logo-codex, .agent-logo-cursor, .agent-logo-opencode, .agent-logo-agy { color: #c9c1a4; }
 .acard-body .umsg { color: #d8d1ba; background: rgba(201,193,164,0.08); border-left-color: #8a642a; }
 
 /* ---------- композер внутри карточки ---------- */
@@ -578,10 +579,12 @@ html.dark .acard-actions .meta-tip {
 html.dark .acard-actions .meta-tip-time { color: #8d8570; }
 html.dark .acard-actions .meta-tip .agent-logo-codex,
 html.dark .acard-actions .meta-tip .agent-logo-cursor,
-html.dark .acard-actions .meta-tip .agent-logo-opencode { color: #d6cdb0; }
+html.dark .acard-actions .meta-tip .agent-logo-opencode,
+html.dark .acard-actions .meta-tip .agent-logo-agy { color: #d6cdb0; }
 html.dark .agent-logo-codex,
 html.dark .agent-logo-cursor,
-html.dark .agent-logo-opencode { color: #8d8570; }
+html.dark .agent-logo-opencode,
+html.dark .agent-logo-agy { color: #8d8570; }
 
 /* бланки: светокопия — белые линии по тёмно-синему */
 html.dark #onboard, html.dark #dim { background: #070d12d6; }

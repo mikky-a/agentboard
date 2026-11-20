@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""board: talk to the other agents running on this Agent Board.
+
+  board ls                            who is running
+  board send <session> <text>         send a message (or pipe the text on stdin)
+  board send <session> <text> --wait  ...and wait for the reply, print it
+  board read <session>                that agent's last reply
+
+The message reaches the agent the same way your own messages from the web or
+Telegram do, signed with your session name so it knows who is asking.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+API_FILE = os.path.expanduser("~/.config/agentboard/agent-api.json")
+
+
+def api(op, **body):
+    try:
+        with open(API_FILE) as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        sys.exit(f"board: Agent Board is not running on this machine ({API_FILE} is missing)")
+    req = urllib.request.Request(
+        cfg["url"] + "/api/peer/" + op, data=json.dumps(body).encode(),
+        headers={"Authorization": "Bearer " + cfg["key"], "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.load(e).get("error") or str(e)
+        except ValueError:
+            msg = str(e)
+        sys.exit(f"board: {msg}")
+    except (OSError, ValueError) as e:
+        sys.exit(f"board: can't reach Agent Board at {cfg['url']}: {e}")
+
+
+def me():
+    """Our own tmux session: the board signs messages with it."""
+    if not os.environ.get("TMUX"):
+        return ""
+    target = ["-t", os.environ["TMUX_PANE"]] if os.environ.get("TMUX_PANE") else []
+    try:
+        return subprocess.run(["tmux", "display", "-p", *target, "#S"], capture_output=True,
+                              text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def cmd_ls(args):
+    rows, mine = api("ls")["agents"], me()
+    if not rows:
+        print("no agents are running")
+    for a in rows:
+        label = {"agy": "Antigravity", "opencode": "opencode"}.get(a["agent"], a["agent"].capitalize())
+        engine = " · ".join(x for x in (label, a["model"]) if x) or "?"
+        what = a["project"] + (f" · {a['label']}" if a["label"] else "")
+        you = "  (you)" if a["name"] == mine else ""
+        print(f"@{a['name']:<16} {a['status'] or '-':<8} {engine:<22} {what}{you}")
+        if a["last"] and not you:
+            print(f"{'':18}{a['last']}")
+
+
+def cmd_read(args):
+    r = api("read", to=args.session)
+    print(f"@{r['to']} is {r['status'] or 'unknown'}. Last reply:\n")
+    print(r["reply"] or "(no reply yet)")
+
+
+def cmd_send(args):
+    text = " ".join(args.text)
+    if not text and not sys.stdin.isatty():
+        text = sys.stdin.read()
+    if not text.strip():
+        sys.exit("board: empty message")
+    r = api("send", to=args.session, text=text, wait=args.wait, **{"from": me()})
+    name = r["to"]
+    if not args.wait:
+        print(f"sent to @{name}. Its reply stays in its own session: "
+              f"board read {name} shows it later.")
+        return
+    print(f"sent to @{name}, waiting for the reply (up to {args.timeout} s)...", flush=True)
+    if r.get("busy"):
+        print(f"note: @{name} was busy, so the reply below may also cover its current task.")
+    deadline, waiting_since = time.time() + args.timeout, None
+    while time.time() < deadline:
+        time.sleep(3)
+        s = api("read", to=name)
+        if s["turn"] and s["turn"] != r["turn"]:
+            print(f"\nreply from @{name}:\n\n" + (s["reply"] or "(the turn ended without text)"))
+            return
+        if s["status"] == "waiting":  # stuck on a question only the user can answer
+            waiting_since = waiting_since or time.time()
+            if time.time() - waiting_since > 60:
+                sys.exit(f"board: @{name} is waiting for the user's confirmation; "
+                         f"check later with: board read {name}")
+        else:
+            waiting_since = None
+    sys.exit(f"board: no reply from @{name} after {args.timeout} s; it is still working. "
+             f"Check later with: board read {name}")
+
+
+def main():
+    p = argparse.ArgumentParser(prog="board", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("ls", help="list running agents").set_defaults(fn=cmd_ls)
+    s = sub.add_parser("send", help="send a message to an agent")
+    s.add_argument("session", help="tmux session name, e.g. scandalio")
+    s.add_argument("text", nargs="*", help="the message; read from stdin when omitted")
+    s.add_argument("--wait", action="store_true", help="wait for the reply and print it")
+    s.add_argument("--timeout", type=int, default=600, help="seconds to wait (default 600)")
+    s.set_defaults(fn=cmd_send)
+    r = sub.add_parser("read", help="print an agent's last reply")
+    r.add_argument("session")
+    r.set_defaults(fn=cmd_read)
+    args = p.parse_args()
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()

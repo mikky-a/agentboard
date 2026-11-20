@@ -1,6 +1,6 @@
 # Agent Board
 
-**Spatial board for Claude Code, Codex, Cursor and opencode.** One card is one
+**Spatial board for Claude Code, Codex, Cursor, opencode and Antigravity.** One card is one
 conversation: start agents into any project folder, drag the cards wherever they
 make sense, and see at a glance who is working, who finished, and who is waiting
 for you.
@@ -33,10 +33,23 @@ waits for you, and answer it right from Telegram. See [SERVER.md](SERVER.md).
 
 - macOS 13+ (Apple Silicon)
 - Any of: [Claude Code](https://claude.com/claude-code), [Codex CLI](https://github.com/openai/codex),
-  [Cursor CLI](https://cursor.com/docs/cli), [opencode](https://opencode.ai)
+  [Cursor CLI](https://cursor.com/docs/cli), [opencode](https://opencode.ai),
+  [Antigravity CLI](https://antigravity.google) (`agy`)
 
 That's it — the app is self-contained (bundles its own Python runtime and tmux),
 signed and notarized. No Homebrew, no Xcode tools.
+
+Antigravity (Gemini models with a Google AI Pro or Ultra account) installs into
+`~/.local/bin` without sudo. Run it once in Terminal to sign in with Google and
+finish its first-run setup, then quit with Ctrl-D twice:
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+agy
+```
+
+On the board, tick Antigravity in "agents & models" and install the status hooks
+from the banner in the top bar.
 
 ## Quickstart
 
@@ -73,11 +86,12 @@ appears in the top bar — click it once. It idempotently adds lifecycle hooks
 for every CLI you have installed (backing up your originals as
 `*.agentboard-bak`): `~/.claude/settings.json`, `~/.codex/hooks.json`,
 `~/.cursor/hooks.json` (plus a `Shell(tee)` allowlist entry — Cursor's CLI
-ignores hook permission responses), and an opencode plugin in
-`~/.config/opencode/plugins/`. Restart any live agent sessions after
+ignores hook permission responses), an opencode plugin in
+`~/.config/opencode/plugins/`, and `~/.gemini/config/hooks.json` with a small
+status script for Antigravity. Restart any live agent sessions after
 installing; Codex will ask to trust the new hooks — choose "Trust all and
 continue". When you create an agent from the board, the folder is pre-trusted
-in the CLI's own config (Claude / Codex / Cursor), so agents don't silently
+in the CLI's own config (Claude / Codex / Cursor / Antigravity), so agents don't silently
 stall on first-run "do you trust this directory?" dialogs.
 
 ## Statuses
@@ -115,15 +129,16 @@ Server settings (`AGENTBOARD_HOST`, `AGENTBOARD_TOKEN`, `AGENTBOARD_URL`,
 
 - `agentboard.py` — server (Python stdlib, localhost:8787)
 - `index.html` — the whole UI
+- `board` — command for agents to list and message each other (see SERVER.md)
 - `skins/` — macOS and Soviet themes on top of the base terminal one
 - `board.json` — your board state (created on first run, not in the repo)
 - `app/` + `build_app.sh` — native wrapper (Swift + WKWebView)
 - `deploy/` — systemd unit, settings and Caddy templates for a Linux server
-- `test_*.py` — tests: `python3 -m unittest test_codex_notifications test_agent_input`
+- `test_*.py` — tests: `python3 -m unittest`
 
 ## Roadmap
 
-- Resume for paused Codex / Cursor / opencode cards (Claude only for now)
+- Resume for paused Cursor / opencode cards (Claude, Codex and Antigravity resume already)
 - Homebrew tap
 - Native Linux desktop and Windows (a Linux server works already: [SERVER.md](SERVER.md))
 

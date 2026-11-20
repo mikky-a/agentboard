@@ -273,3 +273,115 @@ class CodexNotificationsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def task(kind, turn, at, error=None):
+    payload = {"type": f"task_{kind}", "turn_id": turn}
+    if kind == "complete":
+        payload.update(completed_at=at, last_agent_message=None, error=error)
+    return {"type": "event_msg", "timestamp": "2026-11-20T12:00:00Z", "payload": payload}
+
+
+OVERLOAD = {"message": "Selected model is at capacity. Please try a different model.",
+            "codex_error_info": "server_overloaded"}
+
+
+class CodexCapacityRetryTest(unittest.TestCase):
+    """«Selected model is at capacity» ends the turn and Codex waits for the user
+    forever; the board says «continue» itself, with a growing pause."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "rollout.jsonl"
+        self.path.write_text("")
+        self.sent, self.posts, self.menu = [], [], ""
+        card = {"agent": "codex", "tmux": "cx", "project": "proj", "label": "Cx",
+                "rollout": str(self.path)}
+        for target, kwargs in (
+            ("codex_notification_cards", {"return_value": [card]}),
+            ("log_valid", {"return_value": True}),
+            ("agent_menu", {"side_effect": lambda name, engine: self.menu}),
+            ("send_to_agent", {"side_effect": lambda n, t: self.sent.append(t) or True}),
+            ("tg_enqueue", {"side_effect": lambda n, t: self.posts.append(t)}),
+            ("tg_log", {}),
+            ("TG_TOKEN", {"new": "1:x"}),
+            ("TG_CHAT", {"new": "100"}),
+            ("CODEX_RETRY", {"new": {}}),
+        ):
+            p = patch.object(board, target, **kwargs)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def log(self, *records):
+        with self.path.open("a") as f:
+            for r in records:
+                f.write(json.dumps(r) + "\n")
+
+    def tick(self, now):
+        board.codex_capacity_retries(now)
+
+    def test_overload_is_retried_after_a_pause(self):
+        self.log(task("started", "t1", 1000), task("complete", "t1", 1000, OVERLOAD))
+        self.tick(1010)
+        self.assertEqual(self.sent, [])  # 30 s pause first
+        self.menu = "Some menu"
+        self.tick(1031)
+        self.assertEqual(self.sent, [])  # never types into an open menu
+        self.menu = ""
+        self.tick(1032)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("at capacity", self.sent[0])
+        self.assertIn("попытка 1", self.sent[0])
+        self.tick(1040)
+        self.assertEqual(len(self.sent), 1)  # once per failed turn
+
+    def test_pause_grows_and_success_resets_the_chain(self):
+        self.log(task("complete", "t1", 1000, OVERLOAD))
+        self.tick(1031)
+        self.log(task("started", "t2", 1040))
+        self.tick(1041)
+        self.log(task("complete", "t2", 1050, OVERLOAD))
+        self.tick(1100)
+        self.assertEqual(len(self.sent), 1)  # second attempt waits 60 s
+        self.tick(1111)
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("попытка 2", self.sent[-1])
+        self.log(task("started", "t3", 1120), task("complete", "t3", 1200))
+        self.tick(1201)
+        self.assertEqual(board.CODEX_RETRY, {})
+        self.log(task("complete", "t4", 1300, OVERLOAD))
+        self.tick(1331)
+        self.assertIn("попытка 1", self.sent[-1])
+
+    def test_gives_up_with_a_telegram_notice_and_restarts_on_user_turn(self):
+        at = 1000
+        for i, delay in enumerate(board.CODEX_RETRY_DELAYS):
+            self.log(task("complete", f"t{i}", at, OVERLOAD))
+            self.tick(at + 1)
+            self.tick(at + delay + 1)
+            at += delay + 10
+        self.assertEqual(len(self.sent), len(board.CODEX_RETRY_DELAYS))
+        self.log(task("complete", "last", at, OVERLOAD))
+        self.tick(at + 1)
+        self.tick(at + 2000)
+        self.assertEqual(len(self.sent), len(board.CODEX_RETRY_DELAYS))
+        self.assertEqual(len(self.posts), 1)
+        self.assertIn("не помогло", self.posts[0])
+        # the user writes, and that turn hits the overload again — a fresh chain
+        self.log(task("started", "u", at + 3000), task("complete", "u", at + 3001, OVERLOAD))
+        self.tick(at + 3002)
+        self.tick(at + 3032)
+        self.assertIn("попытка 1", self.sent[-1])
+
+    def test_old_failures_limits_and_other_errors_are_left_alone(self):
+        self.log(task("complete", "old", 1000, OVERLOAD))
+        self.tick(1000 + board.CODEX_RETRY_FRESH + 100)
+        self.tick(1000 + board.CODEX_RETRY_FRESH + 200)
+        self.log(task("complete", "lim", 9000, {"message": "limit",
+                                                "codex_error_info": "usage_limit_exceeded"}))
+        self.tick(9001)
+        self.tick(9100)
+        self.log(task("started", "busy", 9200))
+        self.tick(9300)
+        self.assertEqual((self.sent, self.posts), ([], []))
