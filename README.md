@@ -102,6 +102,12 @@ Statuses come from the CLIs' own lifecycle hooks (e.g. the `PermissionRequest`
 event) writing to `~/.claude/agent-status/<tmux-session>` — no fragile parsing
 of terminal output.
 
+**Agents run without permission prompts.** The board starts Claude Code and
+Antigravity with `--dangerously-skip-permissions` and Codex with
+`--dangerously-bypass-approvals-and-sandbox`, so an agent can run any command
+in its folder without asking. To get the prompts back, set `AGENTBOARD_ASK=1`
+in the board's environment; an agent that asks then turns its card yellow.
+
 ## Native app
 
 `install.sh` builds it automatically; to rebuild by hand: `./build_app.sh`

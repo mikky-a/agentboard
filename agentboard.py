@@ -40,6 +40,10 @@ TOKEN = os.environ.get("AGENTBOARD_TOKEN", "")
 TOKEN_HASH = hashlib.sha256(TOKEN.encode()).hexdigest()  # в cookie лежит он, не сам токен
 # на сервере нет Terminal и Finder: «открыть» там — диалог прямо в браузере
 HEADLESS = sys.platform != "darwin" or bool(os.environ.get("AGENTBOARD_HEADLESS"))
+# Агенты доски идут без вопросов о разрешениях — и на узле, и на маке: на узле диалог
+# нечем нажать (терминала нет, с телефона — тем более), а на маке подтверждать каждую
+# команду мешает. AGENTBOARD_ASK=1 — пусть спрашивают (карточка желтеет «ждёт тебя»).
+BYPASS = not os.environ.get("AGENTBOARD_ASK")
 # бандл-версия (.app) приносит свой tmux и живёт на своём сокете,
 # чтобы не пересекаться с юзерским tmux-сервером (protocol version mismatch)
 TMUX = os.environ.get("AGENTBOARD_TMUX") or shutil.which("tmux") or "/opt/homebrew/bin/tmux"
@@ -487,7 +491,8 @@ def _install_opencode():
 # lastUserInput — поэтому разговор, где писал юзер, запоминаем как главный и статус
 # карточки берём только из него. Stop главного при живых субагентах (fullyIdle: false) —
 # тоже конец хода: ответ юзеру уже написан. События «жду разрешения» у agy нет:
-# на узле он идёт с --dangerously-skip-permissions, на маке диалог видит пейн-эвристика.
+# доска запускает его с --dangerously-skip-permissions, а с AGENTBOARD_ASK диалог
+# видит пейн-эвристика.
 
 AGY_HOOKS_FILE = os.path.expanduser("~/.gemini/config/hooks.json")
 AGY_HOOK_SCRIPT = os.path.expanduser("~/.gemini/config/agent-status.sh")
@@ -2242,15 +2247,15 @@ def pre_trust(agent, cwd):
             if not ok or not cfg:  # нет файла — claude ещё не запускали, не лезем
                 return
             proj = cfg.setdefault("projects", {}).setdefault(cwd, {})
-            # на узле агенты доски идут с --dangerously-skip-permissions —
+            # агенты доски идут с --dangerously-skip-permissions (BYPASS) —
             # принимаем одноразовый диалог согласия, иначе тихий старт виснет.
             # Мастер первого запуска (тема, способ входа) — тоже: на узле его
             # некому пройти, а логин сделан отдельно (claude auth status)
             if not proj.get("hasTrustDialogAccepted") or not cfg.get("hasCompletedOnboarding") \
-                    or (HEADLESS and not cfg.get("bypassPermissionsModeAccepted")):
+                    or (BYPASS and not cfg.get("bypassPermissionsModeAccepted")):
                 proj["hasTrustDialogAccepted"] = True
                 cfg["hasCompletedOnboarding"] = True
-                if HEADLESS:
+                if BYPASS:
                     cfg["bypassPermissionsModeAccepted"] = True
                 tmp = CLAUDE_JSON + ".agentboard-tmp"
                 with open(tmp, "w") as f:
@@ -2259,7 +2264,7 @@ def pre_trust(agent, cwd):
             # с 2.1.28x согласие на bypass лежит в settings.json (туда же пишем хуки);
             # тема — чтобы мастер первого запуска не спрашивал её на узле
             st, ok = _read_json(CLAUDE_SETTINGS)
-            if HEADLESS and ok and not st.get("skipDangerousModePermissionPrompt"):
+            if BYPASS and ok and not st.get("skipDangerousModePermissionPrompt"):
                 st["skipDangerousModePermissionPrompt"] = True
                 st.setdefault("theme", "dark")
                 tmp = CLAUDE_SETTINGS + ".tmp"
@@ -2302,10 +2307,9 @@ def pre_trust(agent, cwd):
         pass  # не вышло — агент просто спросит сам, как раньше
 
 
-# на узле диалог разрешения нечем нажать (терминала нет, с телефона — тем более),
-# поэтому codex там идёт без вопросов, как клод с --dangerously-skip-permissions
-CODEX_BYPASS = "--dangerously-bypass-approvals-and-sandbox" if HEADLESS else ""
-CLAUDE_BYPASS = ["--dangerously-skip-permissions"] if HEADLESS else []  # на маке спросит сам
+# без вопросов о разрешениях (см. BYPASS): у каждого CLI свой флаг
+CODEX_BYPASS = "--dangerously-bypass-approvals-and-sandbox" if BYPASS else ""
+CLAUDE_BYPASS = ["--dangerously-skip-permissions"] if BYPASS else []
 AGY_BYPASS = CLAUDE_BYPASS  # у agy флаг тот же
 # agy сам обновляется в фоне при каждом запуске; доска свои CLI не обновляет
 # за спиной (claude у юзера тоже без автообновления) — обновлять руками: agy update
